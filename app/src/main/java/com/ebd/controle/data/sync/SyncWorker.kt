@@ -29,21 +29,26 @@ class SyncWorker(
         if (url.isBlank()) return Result.success()
         if (!prefs.getBoolean(KEY_AUTO, true)) return Result.success()
 
-        val repo = (applicationContext as EBDApp).repository
+        val syncManager = (applicationContext as EBDApp).syncManager
         return try {
-            repo.executarSync(url)
-            prefs.edit()
-                .putLong(KEY_LAST, System.currentTimeMillis())
-                .putBoolean(KEY_LAST_OK, true)
-                .putString(KEY_LAST_MSG, "")
-                .apply()
-            Result.success()
+            val (sucesso, _) = syncManager.sincronizar(manual = false)
+            if (sucesso) {
+                prefs.edit()
+                    .putLong(KEY_LAST, System.currentTimeMillis())
+                    .putBoolean(KEY_LAST_OK, true)
+                    .putString(KEY_LAST_MSG, "")
+                    .apply()
+                Result.success()
+            } else {
+                // Se falhou por falta de URL ou auto-sync off, SyncManager retornou false.
+                // Não tentamos de novo (retry) nesses casos.
+                Result.success()
+            }
         } catch (e: Exception) {
             prefs.edit()
                 .putBoolean(KEY_LAST_OK, false)
                 .putString(KEY_LAST_MSG, e.message ?: "falha")
                 .apply()
-            // tenta de novo algumas vezes (rede instável); depois desiste até o próximo ciclo
             if (runAttemptCount < 3) Result.retry() else Result.success()
         }
     }
