@@ -1,9 +1,7 @@
 package com.ebd.controle
 
 import android.app.Application
-import com.ebd.controle.data.Aluno
 import com.ebd.controle.data.AppDatabase
-import com.ebd.controle.data.Classe
 import com.ebd.controle.data.Repository
 import com.ebd.controle.data.SyncManager
 import kotlinx.coroutines.CoroutineScope
