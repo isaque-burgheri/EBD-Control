@@ -126,8 +126,27 @@ class ChamadaViewModel(app: Application) : AndroidViewModel(app) {
     private val _alunos = MutableStateFlow<List<Aluno>>(emptyList())
     val alunos: StateFlow<List<Aluno>> = _alunos
 
+    // Chamada já existente para a classe+data selecionada (null = chamada nova)
+    private val _chamadaExistente = MutableStateFlow<Chamada?>(null)
+    val chamadaExistente: StateFlow<Chamada?> = _chamadaExistente.asStateFlow()
+
+    // Presenças já registradas nessa chamada (para pré-marcar os alunos ao editar)
+    private val _presencasExistentes = MutableStateFlow<List<Presenca>>(emptyList())
+    val presencasExistentes: StateFlow<List<Presenca>> = _presencasExistentes.asStateFlow()
+
     fun carregarAlunos(classeId: Long) = viewModelScope.launch {
         _alunos.value = repo.listarAlunosPorClasse(classeId)
+    }
+
+    /**
+     * Carrega os alunos da classe e, se já existir uma chamada para essa
+     * classe+data, traz a chamada e suas presenças para edição.
+     */
+    fun carregar(classeId: Long, data: Long) = viewModelScope.launch {
+        _alunos.value = repo.listarAlunosPorClasse(classeId)
+        val ch = repo.buscarChamada(classeId, data)
+        _chamadaExistente.value = ch
+        _presencasExistentes.value = ch?.let { repo.presencasDaChamada(it.id) } ?: emptyList()
     }
 
     fun salvar(chamada: Chamada, presencas: List<Presenca>, visitantes: List<Visitante>, onDone: () -> Unit) =
@@ -136,6 +155,14 @@ class ChamadaViewModel(app: Application) : AndroidViewModel(app) {
             visitantes.forEach { repo.salvarVisitante(it) }
             onDone()
         }
+
+    /** Exclui a chamada carregada (junto das presenças e da oferta vinculada). */
+    fun excluirChamada(onDone: () -> Unit) = viewModelScope.launch {
+        _chamadaExistente.value?.let { repo.deletarChamada(it) }
+        _chamadaExistente.value = null
+        _presencasExistentes.value = emptyList()
+        onDone()
+    }
 }
 
 /* ----------------------- Relatórios ----------------------- */

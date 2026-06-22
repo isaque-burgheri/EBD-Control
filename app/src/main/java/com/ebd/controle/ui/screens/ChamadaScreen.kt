@@ -8,6 +8,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
@@ -22,6 +23,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ebd.controle.data.Chamada
 import com.ebd.controle.data.Presenca
 import com.ebd.controle.data.Visitante
+import com.ebd.controle.data.formatarData
 import com.ebd.controle.data.hojeMillis
 import com.ebd.controle.ui.ChamadaViewModel
 import com.ebd.controle.ui.components.DateField
@@ -36,6 +38,8 @@ fun ChamadaScreen() {
     val vm: ChamadaViewModel = viewModel()
     val classes by vm.classes.collectAsState()
     val alunos by vm.alunos.collectAsState()
+    val chamadaExistente by vm.chamadaExistente.collectAsState()
+    val presencasExistentes by vm.presencasExistentes.collectAsState()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
@@ -44,6 +48,7 @@ fun ChamadaScreen() {
     var licao by remember { mutableStateOf("") }
     var oferta by remember { mutableStateOf("") }
     val marcas = remember { mutableStateMapOf<Long, Marca>() }
+    var confirmarExcluir by remember { mutableStateOf(false) }
 
     // visitantes adicionados nesta chamada (nome, telefone)
     val visitantesNovos = remember { mutableStateListOf<Pair<String, String>>() }
@@ -51,11 +56,27 @@ fun ChamadaScreen() {
     var visTel by remember { mutableStateOf("") }
 
     val classeId = classes.getOrNull(classeIdx)?.id
+    val editando = chamadaExistente != null
 
-    LaunchedEffect(classeId) { classeId?.let { vm.carregarAlunos(it) } }
-    LaunchedEffect(alunos) {
+    // Ao trocar de classe ou data, recarrega alunos + chamada existente (se houver)
+    LaunchedEffect(classeId, data) { classeId?.let { vm.carregar(it, data) } }
+
+    // Pré-marca os alunos com o que já estava registrado (ou tudo desmarcado se for nova)
+    LaunchedEffect(alunos, presencasExistentes) {
+        val porAluno = presencasExistentes.associateBy { it.alunoId }
         marcas.clear()
-        alunos.forEach { marcas[it.id] = Marca(false, false, false) }
+        alunos.forEach { a ->
+            val p = porAluno[a.id]
+            marcas[a.id] = if (p != null) Marca(p.presente, p.biblia, p.revista)
+                           else Marca(false, false, false)
+        }
+    }
+
+    // Pré-preenche lição e oferta a partir da chamada carregada
+    LaunchedEffect(chamadaExistente) {
+        val ch = chamadaExistente
+        licao = if (ch != null && ch.licao > 0) ch.licao.toString() else ""
+        oferta = if (ch != null && ch.oferta > 0.0) ofertaParaTexto(ch.oferta) else ""
     }
 
     val presentes = marcas.values.count { it.presente }
@@ -72,6 +93,21 @@ fun ChamadaScreen() {
                 Dropdown("Classe", classes.map { it.nome }, classeIdx, { classeIdx = it })
                 Spacer(Modifier.height(8.dp))
                 DateField("Data da aula", data, onPick = { data = it })
+                if (editando) {
+                    Spacer(Modifier.height(8.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "Editando a chamada de ${formatarData(data)} — ajuste as marcações e toque em Atualizar.",
+                            Modifier.padding(10.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(licao, { licao = it }, label = { Text("Lição") },
@@ -152,7 +188,7 @@ fun ChamadaScreen() {
                             classeId = cid, data = data,
                             licao = licao.toIntOrNull() ?: 0,
                             oferta = oferta.replace(",", ".").toDoubleOrNull() ?: 0.0,
-                            visitantes = visitantesNovos.size
+                            visitantes = (chamadaExistente?.visitantes ?: 0) + visitantesNovos.size
                         )
                         val presencas = alunos.map {
                             val mk = marcas[it.id] ?: Marca(false, false, false)
@@ -162,20 +198,63 @@ fun ChamadaScreen() {
                         val visitantes = visitantesNovos.map {
                             Visitante(nome = it.first, telefone = it.second, data = data, classeId = cid)
                         }
+                        val eraEdicao = editando
                         vm.salvar(chamada, presencas, visitantes) {
-                            scope.launch { snackbar.showSnackbar("Chamada salva!") }
-                            licao = ""; oferta = ""
+                            scope.launch {
+                                snackbar.showSnackbar(if (eraEdicao) "Chamada atualizada!" else "Chamada salva!")
+                            }
                             visitantesNovos.clear()
-                            alunos.forEach { marcas[it.id] = Marca(false, false, false) }
+                            vm.carregar(cid, data) // recarrega já com o que foi salvo
                         }
                     },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    Icon(Icons.Filled.Save, null); Spacer(Modifier.width(8.dp)); Text("Finalizar Chamada", fontWeight = FontWeight.Bold)
+                    Icon(Icons.Filled.Save, null); Spacer(Modifier.width(8.dp))
+                    Text(if (editando) "Atualizar Chamada" else "Finalizar Chamada", fontWeight = FontWeight.Bold)
+                }
+
+                if (editando) {
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { confirmarExcluir = true },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Filled.DeleteOutline, null); Spacer(Modifier.width(8.dp))
+                        Text("Excluir chamada")
+                    }
                 }
                 Spacer(Modifier.height(24.dp))
             }
         }
+
+        if (confirmarExcluir) {
+            AlertDialog(
+                onDismissRequest = { confirmarExcluir = false },
+                icon = { Icon(Icons.Filled.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
+                title = { Text("Excluir esta chamada?") },
+                text = {
+                    Text(
+                        "A chamada de ${formatarData(data)} e as presenças registradas nela serão " +
+                            "removidas (a oferta lançada também). Não dá pra desfazer."
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmarExcluir = false
+                        vm.excluirChamada {
+                            scope.launch { snackbar.showSnackbar("Chamada excluída.") }
+                        }
+                    }) { Text("Excluir", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = { TextButton(onClick = { confirmarExcluir = false }) { Text("Cancelar") } }
+            )
+        }
     }
 }
+
+/** Mostra a oferta sem ".0" quando for valor inteiro. */
+private fun ofertaParaTexto(v: Double): String =
+    if (v % 1.0 == 0.0) v.toLong().toString() else v.toString()

@@ -1,7 +1,6 @@
 package com.ebd.controle.data
 
 import androidx.room.withTransaction
-import com.ebd.controle.data.network.SyncEngine
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -17,25 +16,15 @@ class Repository(private val db: AppDatabase) {
     private fun novoUid() = UUID.randomUUID().toString()
     private fun agora() = System.currentTimeMillis()
 
-    /**
-     * Disparado após QUALQUER gravação local feita pelo usuário (não pelo sync).
-     * O app usa isso para agendar um envio rápido à planilha (mão dupla),
-     * para que a mudança apareça para os outros em segundos, não só no ciclo
-     * periódico. É preenchido pelo EBDApp.
-     */
-    var onLocalChange: (() -> Unit)? = null
-    private fun notificar() { onLocalChange?.invoke() }
-
     // ---------------- Classes ----------------
     val classes = classeDao.observarTodas()
     suspend fun listarClasses() = classeDao.listarTodas()
     suspend fun salvarClasse(c: Classe): Long {
         val t = agora()
-        val id = if (c.id == 0L) classeDao.inserir(c.copy(uid = c.uid ?: novoUid(), updatedAt = t, deleted = false))
+        return if (c.id == 0L) classeDao.inserir(c.copy(uid = c.uid ?: novoUid(), updatedAt = t, deleted = false))
         else { classeDao.atualizar(c.copy(uid = c.uid ?: novoUid(), updatedAt = t)); c.id }
-        notificar(); return id
     }
-    suspend fun deletarClasse(c: Classe) { classeDao.atualizar(c.copy(deleted = true, updatedAt = agora())); notificar() }
+    suspend fun deletarClasse(c: Classe) { classeDao.atualizar(c.copy(deleted = true, updatedAt = agora())) }
 
     // ---------------- Alunos ----------------
     val alunos = alunoDao.observarTodos()
@@ -44,11 +33,10 @@ class Repository(private val db: AppDatabase) {
     suspend fun listarTodosAlunos() = alunoDao.listarTodos()
     suspend fun salvarAluno(a: Aluno): Long {
         val t = agora()
-        val id = if (a.id == 0L) alunoDao.inserir(a.copy(uid = a.uid ?: novoUid(), updatedAt = t, deleted = false))
+        return if (a.id == 0L) alunoDao.inserir(a.copy(uid = a.uid ?: novoUid(), updatedAt = t, deleted = false))
         else { alunoDao.atualizar(a.copy(uid = a.uid ?: novoUid(), updatedAt = t)); a.id }
-        notificar(); return id
     }
-    suspend fun deletarAluno(a: Aluno) { alunoDao.atualizar(a.copy(deleted = true, updatedAt = agora())); notificar() }
+    suspend fun deletarAluno(a: Aluno) { alunoDao.atualizar(a.copy(deleted = true, updatedAt = agora())) }
 
     // ---------------- Chamadas / presenças ----------------
     val chamadas = chamadaDao.observarTodas()
@@ -100,8 +88,25 @@ class Repository(private val db: AppDatabase) {
         } else if (finEx != null) {
             financeiroDao.atualizar(finEx.copy(deleted = true, updatedAt = t))
         }
-        notificar()
         return cid
+    }
+
+    /** Chamada já registrada para uma classe numa data (null se não existir). */
+    suspend fun buscarChamada(classeId: Long, data: Long) = chamadaDao.buscar(classeId, data)
+
+    /**
+     * Exclui uma chamada (soft-delete, para sincronizar a exclusão): marca a
+     * chamada, todas as suas presenças e a oferta vinculada como excluídas.
+     */
+    suspend fun deletarChamada(chamada: Chamada) {
+        val t = agora()
+        presencaDao.listarPorChamada(chamada.id).forEach {
+            presencaDao.atualizar(it.copy(deleted = true, updatedAt = t))
+        }
+        financeiroDao.buscarPorChamada(chamada.id)?.let {
+            financeiroDao.atualizar(it.copy(deleted = true, updatedAt = t))
+        }
+        chamadaDao.atualizar(chamada.copy(deleted = true, updatedAt = t))
     }
 
     // ---------------- Financeiro ----------------
@@ -109,22 +114,20 @@ class Repository(private val db: AppDatabase) {
     suspend fun listarFinanceiro() = financeiroDao.listarTodos()
     suspend fun salvarFinanceiro(f: Financeiro): Long {
         val t = agora()
-        val id = if (f.id == 0L) financeiroDao.inserir(f.copy(uid = f.uid ?: novoUid(), updatedAt = t, deleted = false))
+        return if (f.id == 0L) financeiroDao.inserir(f.copy(uid = f.uid ?: novoUid(), updatedAt = t, deleted = false))
         else { financeiroDao.atualizar(f.copy(uid = f.uid ?: novoUid(), updatedAt = t)); f.id }
-        notificar(); return id
     }
-    suspend fun deletarFinanceiro(f: Financeiro) { financeiroDao.atualizar(f.copy(deleted = true, updatedAt = agora())); notificar() }
+    suspend fun deletarFinanceiro(f: Financeiro) { financeiroDao.atualizar(f.copy(deleted = true, updatedAt = agora())) }
 
     // ---------------- Visitantes ----------------
     val visitantes = visitanteDao.observarTodos()
     suspend fun listarVisitantes() = visitanteDao.listarTodos()
     suspend fun salvarVisitante(v: Visitante): Long {
         val t = agora()
-        val id = if (v.id == 0L) visitanteDao.inserir(v.copy(uid = v.uid ?: novoUid(), updatedAt = t, deleted = false))
+        return if (v.id == 0L) visitanteDao.inserir(v.copy(uid = v.uid ?: novoUid(), updatedAt = t, deleted = false))
         else { visitanteDao.atualizar(v.copy(uid = v.uid ?: novoUid(), updatedAt = t)); v.id }
-        notificar(); return id
     }
-    suspend fun deletarVisitante(v: Visitante) { visitanteDao.atualizar(v.copy(deleted = true, updatedAt = agora())); notificar() }
+    suspend fun deletarVisitante(v: Visitante) { visitanteDao.atualizar(v.copy(deleted = true, updatedAt = agora())) }
 
     suspend fun converterVisitanteEmAluno(v: Visitante, classeId: Long) {
         salvarAluno(Aluno(classeId = classeId, nome = v.nome, telefone = v.telefone, cargo = "Membro"))
@@ -145,17 +148,6 @@ class Repository(private val db: AppDatabase) {
     /* ===================================================================
      *  SINCRONIZAÇÃO
      * =================================================================== */
-
-    /**
-     * Ciclo completo de mão dupla: monta o estado local, envia à planilha e
-     * aplica o conjunto mesclado que voltou. É o MESMO caminho do botão manual,
-     * usado também pela sincronização automática (worker / ao abrir o app).
-     */
-    suspend fun executarSync(url: String) {
-        val enviado = montarPayloadSync()
-        val recebido = SyncEngine.enviarEReceber(url, enviado)
-        aplicarSync(recebido)
-    }
 
     private fun b(v: Boolean?): Int = if (v == true) 1 else 0
 
