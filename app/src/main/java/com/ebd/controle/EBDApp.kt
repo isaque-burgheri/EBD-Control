@@ -22,10 +22,10 @@ class EBDApp : Application() {
         repository = Repository(db)
         syncManager = SyncManager(this, repository, db)
         syncManager.iniciar()
-        CoroutineScope(Dispatchers.IO).launch { semearSeVazio() }
+        CoroutineScope(Dispatchers.IO).launch {}
     }
 
-    /** Na primeira execução, cria as classes e alunos de exemplo (da sua planilha). */
+    /** Na primeira execução, cria as classes e alunos de exemplo (da sua planilha).
     private suspend fun semearSeVazio() {
         if (repository.totalClasses() > 0) return
 
@@ -51,5 +51,5 @@ class EBDApp : Application() {
             )
             alunos.forEach { repository.salvarAluno(Aluno(classeId = classeId, nome = it)) }
         }
-    }
+    } */
 }
