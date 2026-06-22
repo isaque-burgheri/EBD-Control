@@ -10,67 +10,66 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Cliente HTTP da sincronização com o Google Apps Script (Web App).
+ * Camada de rede da sincronização.
  *
- * Contrato (o mesmo que o botão manual sempre usou):
- *  - Envia o JSON montado por [com.ebd.controle.data.Repository.montarPayloadSync]
- *    no CORPO de um POST.
- *  - O Apps Script mescla na planilha (última alteração vence) e devolve o
- *    conjunto completo já mesclado, que é aplicado por
- *    [com.ebd.controle.data.Repository.aplicarSync].
+ * Conversa com o Web App do Google Apps Script (doGet / doPost).
  *
- * É tolerante ao formato da resposta: aceita tanto o JSON "cru"
- * ({"classes":[...], ...}) quanto embrulhado ({"ok":true,"data":{...}}).
+ * Detalhe importante: o Apps Script SEMPRE responde com um 302 para um endereço
+ * em `script.googleusercontent.com`, e o corpo de verdade só aparece quando esse
+ * endereço é acessado via GET. O OkHttp já segue esse redirecionamento
+ * automaticamente (inclusive trocando POST -> GET no 302), então recebemos o JSON
+ * final sem precisar tratar o redirect na mão.
  */
 object SyncEngine {
 
-    private val JSON = "application/json; charset=utf-8".toMediaType()
+    private val cliente: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
 
-    private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            // Apps Script responde com 302 para script.googleusercontent.com;
-            // seguir redirecionamentos é essencial.
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .build()
-    }
+    private val TIPO_JSON = "application/json; charset=utf-8".toMediaType()
 
-    /** Envia o payload local e devolve o conjunto mesclado retornado pela planilha. */
+    /** POST: envia o payload local e devolve os dados mesclados que voltam da planilha. */
     suspend fun enviarEReceber(url: String, payload: JSONObject): JSONObject =
         withContext(Dispatchers.IO) {
             val req = Request.Builder()
                 .url(url)
-                .post(payload.toString().toRequestBody(JSON))
+                .post(payload.toString().toRequestBody(TIPO_JSON))
                 .build()
-
-            client.newCall(req).execute().use { resp ->
-                val corpo = resp.body?.string().orEmpty()
-                if (!resp.isSuccessful) {
-                    throw java.io.IOException("HTTP ${resp.code} ao sincronizar")
-                }
-                desembrulhar(corpo)
-            }
+            executar(req)
         }
 
-    /** Para celular novo: baixa tudo enviando um payload vazio (a planilha devolve o total). */
+    /** GET: baixa tudo o que está na planilha. */
     suspend fun baixar(url: String): JSONObject =
-        enviarEReceber(url, JSONObject())
-
-    /** Aceita resposta crua ou embrulhada em {ok/status, data}. */
-    private fun desembrulhar(corpo: String): JSONObject {
-        if (corpo.isBlank()) return JSONObject()
-        val raiz = JSONObject(corpo)
-        val data = raiz.optJSONObject("data")
-        if (data != null) {
-            // formato embrulhado; se vier ok=false, propaga a mensagem
-            if (raiz.has("ok") && !raiz.optBoolean("ok", true)) {
-                throw java.io.IOException(raiz.optString("erro", raiz.optString("message", "Falha na planilha")))
-            }
-            return data
+        withContext(Dispatchers.IO) {
+            val req = Request.Builder().url(url).get().build()
+            executar(req)
         }
-        return raiz
+
+    private fun executar(req: Request): JSONObject {
+        cliente.newCall(req).execute().use { resp ->
+            val corpo = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                throw IllegalStateException("Erro de rede (HTTP ${resp.code})")
+            }
+            if (corpo.isBlank()) return JSONObject()
+
+            val json = try {
+                JSONObject(corpo)
+            } catch (e: Exception) {
+                // Normalmente acontece quando a URL está errada e o Google devolve
+                // uma página HTML de login em vez do JSON.
+                throw IllegalStateException("Resposta inesperada da planilha. Confira a URL do Apps Script.")
+            }
+
+            // doPost devolve { ok, dados }; doGet devolve os dados direto.
+            if (json.has("ok") && !json.optBoolean("ok", true)) {
+                throw IllegalStateException(json.optString("erro", "Erro no servidor"))
+            }
+            return if (json.has("dados")) json.getJSONObject("dados") else json
+        }
     }
 }

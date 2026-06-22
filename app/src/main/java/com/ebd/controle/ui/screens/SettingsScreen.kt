@@ -22,6 +22,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.ebd.controle.data.SyncStatus
+import com.ebd.controle.data.formatarData
 import com.ebd.controle.ui.SettingsViewModel
 import kotlinx.coroutines.launch
 
@@ -71,12 +73,12 @@ fun SettingsScreen(nav: NavController) {
         // Seção Dados
         SettingsSection(title = "Nuvem e Backup", icon = Icons.Filled.Storage) {
             val syncUrl by settingsVm.syncUrl.collectAsState()
-            val isSyncing by settingsVm.isSyncing.collectAsState()
             val autoSync by settingsVm.autoSync.collectAsState()
-            val lastSync by settingsVm.lastSync.collectAsState()
+            val syncStatus by settingsVm.syncStatus.collectAsState()
+            val ultimaSync by settingsVm.ultimaSync.collectAsState()
+            val sincronizando = syncStatus == SyncStatus.SINCRONIZANDO
             val scope = rememberCoroutineScope()
             val snackbar = remember { SnackbarHostState() }
-            var confirmarBaixar by remember { mutableStateOf(false) }
 
             OutlinedTextField(
                 value = syncUrl,
@@ -87,16 +89,15 @@ fun SettingsScreen(nav: NavController) {
                 placeholder = { Text("https://script.google.com/macros/s/...") }
             )
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
 
-            // Sincronização automática (mão dupla): ao abrir o app, a cada 15 min
-            // e logo após cada alteração. O botão abaixo é só um "forçar agora".
+            // Liga/desliga a sincronização automática (padrão: ligada)
             Row(
-                Modifier.fillMaxWidth(),
+                Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(1f).padding(end = 8.dp)) {
                     Text("Sincronização automática", style = MaterialTheme.typography.bodyLarge)
                     Text(
                         "Atualiza sozinho ao abrir, a cada 15 min e após cada alteração.",
@@ -104,7 +105,6 @@ fun SettingsScreen(nav: NavController) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Spacer(Modifier.width(8.dp))
                 Switch(
                     checked = autoSync,
                     onCheckedChange = { settingsVm.setAutoSync(it) },
@@ -112,15 +112,20 @@ fun SettingsScreen(nav: NavController) {
                 )
             }
 
+            // Estado da última sincronização
             Text(
-                text = "Última sincronização: " + formatarUltimoSync(lastSync),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 6.dp)
+                text = when (syncStatus) {
+                    SyncStatus.SINCRONIZANDO -> "Sincronizando..."
+                    SyncStatus.ERRO -> "Última tentativa falhou — toque em \"Sincronizar agora\"."
+                    else -> "Última sincronização: " + tempoRelativoSync(ultimaSync)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (syncStatus == SyncStatus.ERRO) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp)
             )
 
-            Spacer(Modifier.height(12.dp))
-
+            // Sincronização manual sob demanda (a automática já cuida do resto)
             Button(
                 onClick = {
                     settingsVm.sincronizar { _, msg ->
@@ -128,47 +133,16 @@ fun SettingsScreen(nav: NavController) {
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !isSyncing && syncUrl.isNotBlank(),
+                enabled = !sincronizando && syncUrl.isNotBlank(),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                if (isSyncing) {
+                if (sincronizando) {
                     CircularProgressIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
                     Text("Sincronizando...")
                 } else {
                     Text("Sincronizar agora")
                 }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            OutlinedButton(
-                onClick = { confirmarBaixar = true },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isSyncing && syncUrl.isNotBlank(),
-                shape = RoundedCornerShape(8.dp)
-            ) { Text("Baixar da nuvem (substituir tudo)") }
-
-            Text(
-                "Use só num celular novo: apaga o que está neste aparelho e baixa os dados da planilha.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-
-            if (confirmarBaixar) {
-                AlertDialog(
-                    onDismissRequest = { confirmarBaixar = false },
-                    title = { Text("Baixar da nuvem?") },
-                    text = { Text("Isto APAGA os dados deste celular e coloca no lugar o que está na planilha. Continuar?") },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            confirmarBaixar = false
-                            settingsVm.baixarDaNuvem { _, msg -> scope.launch { snackbar.showSnackbar(msg) } }
-                        }) { Text("Sim, baixar") }
-                    },
-                    dismissButton = { TextButton(onClick = { confirmarBaixar = false }) { Text("Cancelar") } }
-                )
             }
 
             HorizontalDivider(Modifier.padding(vertical = 12.dp), thickness = 0.5.dp)
@@ -188,11 +162,24 @@ fun SettingsScreen(nav: NavController) {
         Spacer(Modifier.height(24.dp))
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(
-                "Versão 1.0.0",
+                "Versão 1.1.0",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+}
+
+/** Texto curto e amigável para "quando foi a última sincronização". */
+private fun tempoRelativoSync(millis: Long): String {
+    if (millis <= 0L) return "nunca"
+    val diff = System.currentTimeMillis() - millis
+    val min = diff / 60000L
+    return when {
+        min < 1L -> "agora mesmo"
+        min < 60L -> "há $min min"
+        min < 1440L -> "há ${min / 60L} h"
+        else -> formatarData(millis)
     }
 }
 
@@ -324,18 +311,5 @@ fun SettingsItem(title: String, subtitle: String, onClick: () -> Unit) {
             )
         }
         Icon(Icons.Filled.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-/** Texto amigável do horário da última sincronização. */
-private fun formatarUltimoSync(millis: Long): String {
-    if (millis <= 0L) return "ainda não sincronizado"
-    val agora = System.currentTimeMillis()
-    val diff = agora - millis
-    return when {
-        diff < 60_000L -> "agora mesmo"
-        diff < 3_600_000L -> "há ${diff / 60_000L} min"
-        else -> java.text.SimpleDateFormat("dd/MM 'às' HH:mm", java.util.Locale("pt", "BR"))
-            .format(java.util.Date(millis))
     }
 }

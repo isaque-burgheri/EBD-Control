@@ -1,46 +1,28 @@
 package com.ebd.controle
 
 import android.app.Application
-import android.content.Context
-import androidx.lifecycle.DefaultLifecycleObserver
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.ProcessLifecycleOwner
 import com.ebd.controle.data.Aluno
 import com.ebd.controle.data.AppDatabase
 import com.ebd.controle.data.Classe
 import com.ebd.controle.data.Repository
-import com.ebd.controle.data.sync.SyncScheduler
-import com.ebd.controle.data.sync.SyncWorker
+import com.ebd.controle.data.SyncManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-class EBDApp : Application(), DefaultLifecycleObserver {
+class EBDApp : Application() {
     lateinit var repository: Repository
+        private set
+    lateinit var syncManager: SyncManager
         private set
 
     override fun onCreate() {
-        super<android.app.Application>.onCreate()
-        repository = Repository(AppDatabase.get(this))
-
-        // Mão dupla automática: toda gravação local agenda um envio rápido
-        // (agrupado) para a planilha, sem precisar do botão.
-        repository.onLocalChange = { SyncScheduler.sincronizarEmBreve(this) }
-
-        // Sincroniza sempre que o app vai para o primeiro plano (abrir/retomar).
-        ProcessLifecycleOwner.get().lifecycle.addObserver(this)
-
-        // Mantém em dia em segundo plano (a cada 15 min), se já houver URL.
-        val prefs = getSharedPreferences(SyncWorker.PREFS, Context.MODE_PRIVATE)
-        val temUrl = !prefs.getString(SyncWorker.KEY_URL, "").isNullOrBlank()
-        if (temUrl) SyncScheduler.agendarPeriodico(this)
-
+        super.onCreate()
+        val db = AppDatabase.get(this)
+        repository = Repository(db)
+        syncManager = SyncManager(this, repository, db)
+        syncManager.iniciar()
         CoroutineScope(Dispatchers.IO).launch { semearSeVazio() }
-    }
-
-    /** Chamado quando o app entra em primeiro plano: puxa/empurra o mais recente. */
-    override fun onStart(owner: LifecycleOwner) {
-        SyncScheduler.sincronizarAgora(this)
     }
 
     /** Na primeira execução, cria as classes e alunos de exemplo (da sua planilha). */

@@ -5,9 +5,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ebd.controle.EBDApp
 import com.ebd.controle.data.*
-import com.ebd.controle.data.network.SyncEngine
-import com.ebd.controle.data.sync.SyncScheduler
-import com.ebd.controle.data.sync.SyncWorker
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.time.YearMonth
@@ -400,43 +397,21 @@ private fun <T> Flow<T>.stateInDefault(scope: kotlinx.coroutines.CoroutineScope,
 /* ----------------------- Configurações ----------------------- */
 class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = app.repo()
-    private val prefs = app.getSharedPreferences(SyncWorker.PREFS, android.content.Context.MODE_PRIVATE)
+    private val sync = (app as EBDApp).syncManager
+    private val prefs = app.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
 
     private val _isDarkMode = MutableStateFlow(prefs.getBoolean("dark_mode", false))
     val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
 
-    private val _syncUrl = MutableStateFlow(prefs.getString(SyncWorker.KEY_URL, "") ?: "")
+    private val _syncUrl = MutableStateFlow(prefs.getString("sync_url", "") ?: "")
     val syncUrl: StateFlow<String> = _syncUrl.asStateFlow()
 
-    private val _isSyncing = MutableStateFlow(false)
-    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
-
-    /** Liga/desliga a sincronização automática (padrão: ligada). */
-    private val _autoSync = MutableStateFlow(prefs.getBoolean(SyncWorker.KEY_AUTO, true))
+    private val _autoSync = MutableStateFlow(prefs.getBoolean("auto_sync", true))
     val autoSync: StateFlow<Boolean> = _autoSync.asStateFlow()
 
-    /** Momento da última sincronização bem-sucedida (0 = nunca). */
-    private val _lastSync = MutableStateFlow(prefs.getLong(SyncWorker.KEY_LAST, 0L))
-    val lastSync: StateFlow<Long> = _lastSync.asStateFlow()
-
-    /** A sincronização automática roda em segundo plano (worker). Como ela
-     *  grava o resultado nas SharedPreferences, ouvimos as mudanças para
-     *  refletir o "última sincronização" na tela em tempo real. */
-    private val prefsListener =
-        android.content.SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
-            when (key) {
-                SyncWorker.KEY_LAST -> _lastSync.value = p.getLong(SyncWorker.KEY_LAST, 0L)
-                SyncWorker.KEY_AUTO -> _autoSync.value = p.getBoolean(SyncWorker.KEY_AUTO, true)
-                SyncWorker.KEY_URL -> _syncUrl.value = p.getString(SyncWorker.KEY_URL, "") ?: ""
-            }
-        }
-
-    init { prefs.registerOnSharedPreferenceChangeListener(prefsListener) }
-
-    override fun onCleared() {
-        prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
-        super.onCleared()
-    }
+    /** Estado e horário da última sincronização vêm direto do SyncManager. */
+    val syncStatus: StateFlow<SyncStatus> = sync.status
+    val ultimaSync: StateFlow<Long> = sync.ultimaSync
 
     fun setDarkMode(enabled: Boolean) {
         viewModelScope.launch {
@@ -446,72 +421,20 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setSyncUrl(url: String) {
-        prefs.edit().putString(SyncWorker.KEY_URL, url).apply()
-        _syncUrl.value = url
-        val ctx = getApplication<Application>()
-        if (url.isBlank()) {
-            SyncScheduler.cancelarPeriodico(ctx)
-        } else {
-            // passa a manter em dia sozinho e já puxa o que houver agora
-            SyncScheduler.agendarPeriodico(ctx)
-            SyncScheduler.sincronizarAgora(ctx)
-        }
+        val limpa = url.trim()
+        prefs.edit().putString("sync_url", limpa).apply()
+        _syncUrl.value = limpa
     }
 
     fun setAutoSync(enabled: Boolean) {
-        prefs.edit().putBoolean(SyncWorker.KEY_AUTO, enabled).apply()
+        prefs.edit().putBoolean("auto_sync", enabled).apply()
         _autoSync.value = enabled
-        val ctx = getApplication<Application>()
-        if (enabled && _syncUrl.value.isNotBlank()) SyncScheduler.agendarPeriodico(ctx)
-        else SyncScheduler.cancelarPeriodico(ctx)
+        if (enabled) sync.aoAbrir()   // ligou: já sincroniza e religa o periódico
     }
 
-    private fun registrarSucesso() {
-        val agora = System.currentTimeMillis()
-        prefs.edit()
-            .putLong(SyncWorker.KEY_LAST, agora)
-            .putBoolean(SyncWorker.KEY_LAST_OK, true)
-            .putString(SyncWorker.KEY_LAST_MSG, "")
-            .apply()
-        _lastSync.value = agora
-    }
-
-    /** Sincronização manual ("agora"): mesmo caminho do automático. */
+    /** Botão "Sincronizar agora": força uma sincronização imediata de mão dupla. */
     fun sincronizar(onResult: (Boolean, String) -> Unit) {
-        val url = _syncUrl.value
-        if (url.isBlank()) { onResult(false, "Configure a URL da planilha primeiro"); return }
-        viewModelScope.launch {
-            _isSyncing.value = true
-            try {
-                repo.executarSync(url)
-                registrarSucesso()
-                onResult(true, "Sincronizado com sucesso!")
-            } catch (e: Exception) {
-                onResult(false, "Falha: ${e.message}")
-            } finally {
-                _isSyncing.value = false
-            }
-        }
-    }
-
-    /** Para celular novo: apaga o que está aqui e baixa tudo da planilha. */
-    fun baixarDaNuvem(onResult: (Boolean, String) -> Unit) {
-        val url = _syncUrl.value
-        if (url.isBlank()) { onResult(false, "Configure a URL da planilha primeiro"); return }
-        viewModelScope.launch {
-            _isSyncing.value = true
-            try {
-                val dados = SyncEngine.baixar(url)
-                repo.limparTudo()
-                repo.aplicarSync(dados)
-                registrarSucesso()
-                onResult(true, "Dados baixados da nuvem!")
-            } catch (e: Exception) {
-                onResult(false, "Falha: ${e.message}")
-            } finally {
-                _isSyncing.value = false
-            }
-        }
+        sync.disparar(manual = true, onResult = onResult)
     }
 
     /**
