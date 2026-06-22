@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Marca: preto quente como base do ícone (nada de azul) -->
+    <color name="ic_launcher_background">#1A1615</color>
+    <color name="brand_lime">#DBFFA5</color>
+    <color name="brand_paper">#F6F2EA</color>
+    <!-- Fundo da janela (antes do Compose desenhar) — tema claro -->
+    <color name="window_bg">#FFFFFF</color>
+</resources>

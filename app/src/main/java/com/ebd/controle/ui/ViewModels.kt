@@ -1,0 +1,532 @@
+package com.ebd.controle.ui
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.ebd.controle.EBDApp
+import com.ebd.controle.data.*
+import com.ebd.controle.data.network.SyncEngine
+import com.ebd.controle.data.sync.SyncScheduler
+import com.ebd.controle.data.sync.SyncWorker
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import java.time.YearMonth
+
+private fun Application.repo() = (this as EBDApp).repository
+
+/* ----------------------- UI models ----------------------- */
+data class AniversarianteUi(
+    val nome: String, val classe: String, val dataNascimento: Long,
+    val idadeQueFara: Int, val diaSemana: String, val diasAte: Long, val quando: String
+)
+data class ChamadaResumoUi(
+    val data: Long, val licao: Int, val presentes: Int, val total: Int, val pct: Float, val oferta: Double
+)
+
+/* ===== Modelos do RELATÓRIO DO DIA ===== */
+/** Linha por classe num determinado dia. Nas visões "geral" e "por classe" a estrutura é a mesma. */
+data class RelDiaLinhaClasse(
+    val classeId: Long,
+    val classeNome: String,
+    val matriculados: Int,
+    val presentes: Int,
+    val ausentes: Int,
+    val visitantes: Int,
+    val biblias: Int,
+    val revistas: Int,
+    val oferta: Double,
+    val licao: Int
+)
+/** Pacote completo do relatório de uma data (dia da aula). */
+data class RelDiaUi(
+    val data: Long,
+    val linhas: List<RelDiaLinhaClasse>
+) {
+    val matriculados get() = linhas.sumOf { it.matriculados }
+    val presentes  get() = linhas.sumOf { it.presentes }
+    val ausentes   get() = linhas.sumOf { it.ausentes }
+    val visitantes get() = linhas.sumOf { it.visitantes }
+    val biblias    get() = linhas.sumOf { it.biblias }
+    val revistas   get() = linhas.sumOf { it.revistas }
+    val oferta     get() = linhas.sumOf { it.oferta }
+    val totalPresentes get() = presentes + visitantes
+    val pctPresenca: Float get() = if (matriculados > 0) presentes.toFloat() / matriculados else 0f
+}
+
+/* ===== Modelos do RELATÓRIO DO TRIMESTRE =====
+ * Agora pivotado: cada COLUNA é uma classe; cada LINHA é uma métrica.
+ *  - matriculados = nº atual de membros da classe (cadastro), não soma de aulas.
+ *  - demais métricas = soma do trimestre dentro daquela classe.
+ *  - visitantes vêm da tabela Visitante (não do campo Chamada.visitantes),
+ *    para cobrir os dois fluxos: o cadastrado dentro da Chamada e o cadastrado
+ *    pela tela de Visitantes.
+ */
+data class RelTrimColuna(
+    val classeId: Long,
+    val classeNome: String,
+    val matriculados: Int,
+    val presentes: Int,
+    val ausentes: Int,
+    val visitantes: Int,
+    val biblias: Int,
+    val revistas: Int,
+    val oferta: Double
+)
+/** Item da lista de aulas do trimestre, usado para clicar e abrir o relatório do dia. */
+data class AulaListaUi(
+    val data: Long,
+    val classesQueLancaram: Int,
+    val totalClasses: Int,
+    val matriculados: Int,
+    val presentes: Int,
+    val pct: Float,
+    val oferta: Double
+)
+/** Pacote do relatório do trimestre (uma coluna por classe, com totais). */
+data class RelTrimUi(
+    val trimestre: Trimestre,
+    val colunas: List<RelTrimColuna>
+) {
+    val totalMatric  get() = colunas.sumOf { it.matriculados }
+    val totalAusent  get() = colunas.sumOf { it.ausentes }
+    val totalPres    get() = colunas.sumOf { it.presentes }
+    val totalVisit   get() = colunas.sumOf { it.visitantes }
+    val totalBibl    get() = colunas.sumOf { it.biblias }
+    val totalRev     get() = colunas.sumOf { it.revistas }
+    val totalOferta  get() = colunas.sumOf { it.oferta }
+}
+data class ResumoMes(val entradas: Double, val saidas: Double) { val saldo get() = entradas - saidas }
+data class VisitanteUi(val visitante: Visitante, val classeNome: String)
+data class DashboardState(
+    val totalClasses: Int = 0, val totalAlunos: Int = 0,
+    val ultimaData: Long? = null, val ultimaPct: Float = 0f,
+    val saldoMes: Double = 0.0, val aniversariantes: List<AniversarianteUi> = emptyList(),
+    val visitantesPendentes: Int = 0
+)
+
+/* ----------------------- Classes ----------------------- */
+class ClassesViewModel(app: Application) : AndroidViewModel(app) {
+    private val repo = app.repo()
+    val classes = repo.classes.stateInDefault(viewModelScope, emptyList())
+    fun salvar(c: Classe) = viewModelScope.launch { repo.salvarClasse(c) }
+    fun deletar(c: Classe) = viewModelScope.launch { repo.deletarClasse(c) }
+}
+
+/* ----------------------- Alunos ----------------------- */
+class AlunosViewModel(app: Application) : AndroidViewModel(app) {
+    private val repo = app.repo()
+    val classes = repo.classes.stateInDefault(viewModelScope, emptyList())
+    val alunos = repo.alunos.stateInDefault(viewModelScope, emptyList())
+    fun salvar(a: Aluno) = viewModelScope.launch { repo.salvarAluno(a) }
+    fun deletar(a: Aluno) = viewModelScope.launch { repo.deletarAluno(a) }
+}
+
+/* ----------------------- Chamada ----------------------- */
+class ChamadaViewModel(app: Application) : AndroidViewModel(app) {
+    private val repo = app.repo()
+    val classes = repo.classes.stateInDefault(viewModelScope, emptyList())
+
+    private val _alunos = MutableStateFlow<List<Aluno>>(emptyList())
+    val alunos: StateFlow<List<Aluno>> = _alunos
+
+    fun carregarAlunos(classeId: Long) = viewModelScope.launch {
+        _alunos.value = repo.listarAlunosPorClasse(classeId)
+    }
+
+    fun salvar(chamada: Chamada, presencas: List<Presenca>, visitantes: List<Visitante>, onDone: () -> Unit) =
+        viewModelScope.launch {
+            repo.salvarChamada(chamada, presencas)
+            visitantes.forEach { repo.salvarVisitante(it) }
+            onDone()
+        }
+}
+
+/* ----------------------- Relatórios ----------------------- */
+class RelatoriosViewModel(app: Application) : AndroidViewModel(app) {
+    private val repo = app.repo()
+
+    /** Lista de classes ativas (para o filtro). */
+    val classes = repo.classes.stateInDefault(viewModelScope, emptyList())
+
+    /** Trimestre selecionado. Inicia no atual. */
+    private val _trimestre = MutableStateFlow(Trimestre.atual())
+    val trimestre: StateFlow<Trimestre> = _trimestre.asStateFlow()
+
+    /** Classe selecionada para filtrar. `null` = visão geral (todas somadas). */
+    private val _classeId = MutableStateFlow<Long?>(null)
+    val classeId: StateFlow<Long?> = _classeId.asStateFlow()
+
+    /** Lista de aulas do trimestre selecionado (uma entrada por DATA, agregada). */
+    private val _aulas = MutableStateFlow<List<AulaListaUi>>(emptyList())
+    val aulas: StateFlow<List<AulaListaUi>> = _aulas.asStateFlow()
+
+    /** Relatório do trimestre selecionado (formato CPAD). */
+    private val _relTrim = MutableStateFlow<RelTrimUi?>(null)
+    val relTrim: StateFlow<RelTrimUi?> = _relTrim.asStateFlow()
+
+    /** Relatório do dia atualmente aberto (quando o usuário clica numa aula). */
+    private val _relDia = MutableStateFlow<RelDiaUi?>(null)
+    val relDia: StateFlow<RelDiaUi?> = _relDia.asStateFlow()
+
+    init { recarregar() }
+
+    fun selecionarTrimestre(t: Trimestre) { _trimestre.value = t; recarregar() }
+    fun trimestreAnterior() = selecionarTrimestre(_trimestre.value.anterior())
+    fun trimestreProximo()  = selecionarTrimestre(_trimestre.value.proximo())
+    fun selecionarClasse(id: Long?) { _classeId.value = id; recarregar() }
+
+    /** Recalcula a lista de aulas e o relatório do trimestre conforme filtros. */
+    private fun recarregar() = viewModelScope.launch {
+        val t = _trimestre.value
+        val filtroClasse = _classeId.value
+        val noTrim: (Long) -> Boolean = { it in t.inicioMillis() until t.fimExclusivoMillis() }
+
+        // Lista de classes consideradas (todas, ou só a filtrada)
+        val todasClasses = repo.listarClasses()
+        val classesAtivas = if (filtroClasse == null) todasClasses
+                            else todasClasses.filter { it.id == filtroClasse }
+
+        // Todos os alunos ativos (para contar "matriculados" por classe — número atual)
+        val matriculadosPorClasse: Map<Long, Int> = classesAtivas.associate { c ->
+            c.id to repo.listarAlunosPorClasse(c.id).size
+        }
+
+        // Chamadas do trimestre (respeitando filtro de classe)
+        val chamadasTrim = repo.listarTodasChamadas()
+            .filter { noTrim(it.data) }
+            .filter { filtroClasse == null || it.classeId == filtroClasse }
+
+        // Pré-calcula presenças/bíblias/revistas por chamada
+        data class Agg(val pres: Int, val bibl: Int, val rev: Int)
+        val porChamada: Map<Long, Agg> = chamadasTrim.associate { ch ->
+            val presencas = repo.presencasDaChamada(ch.id)
+            ch.id to Agg(
+                pres = presencas.count { it.presente },
+                bibl = presencas.count { it.biblia && it.presente },
+                rev  = presencas.count { it.revista && it.presente }
+            )
+        }
+
+        // Visitantes do trimestre (vem da TABELA visitantes — cobre os dois fluxos:
+        // os cadastrados via Chamada e os cadastrados via tela Visitantes)
+        val visitantesTrim = repo.listarVisitantes()
+            .filter { noTrim(it.data) }
+            .filter { filtroClasse == null || it.classeId == filtroClasse }
+
+        // -------- LISTA DE AULAS (continua agrupada por data) --------
+        val totalClassesQueExistem = if (filtroClasse == null) todasClasses.size else 1
+        val agrupado = chamadasTrim.groupBy { it.data }.toSortedMap()
+        _aulas.value = agrupado.map { (data, chamadasDoDia) ->
+            // matriculados na lista de aulas = soma dos matriculados das classes
+            // que lançaram naquela data (visão do dia, não estado total)
+            val mat = chamadasDoDia.sumOf { matriculadosPorClasse[it.classeId] ?: 0 }
+            val pres = chamadasDoDia.sumOf { porChamada[it.id]?.pres ?: 0 }
+            val oferta = chamadasDoDia.sumOf { it.oferta }
+            AulaListaUi(
+                data = data,
+                classesQueLancaram = chamadasDoDia.size,
+                totalClasses = totalClassesQueExistem,
+                matriculados = mat,
+                presentes = pres,
+                pct = if (mat > 0) pres.toFloat() / mat else 0f,
+                oferta = oferta
+            )
+        }
+
+        // -------- RELATÓRIO DO TRIMESTRE (pivot por CLASSE) --------
+        _relTrim.value = RelTrimUi(
+            trimestre = t,
+            colunas = classesAtivas.sortedBy { it.nome }.map { c ->
+                val chamadasDaClasse = chamadasTrim.filter { it.classeId == c.id }
+                val matric = matriculadosPorClasse[c.id] ?: 0
+                val presentes = chamadasDaClasse.sumOf { porChamada[it.id]?.pres ?: 0 }
+                val ausentesSoma = chamadasDaClasse.sumOf { ch ->
+                    val matriculadosNaData = matric  // estado atual; aproximação
+                    val p = porChamada[ch.id]?.pres ?: 0
+                    (matriculadosNaData - p).coerceAtLeast(0)
+                }
+                val biblias = chamadasDaClasse.sumOf { porChamada[it.id]?.bibl ?: 0 }
+                val revistas = chamadasDaClasse.sumOf { porChamada[it.id]?.rev ?: 0 }
+                val oferta = chamadasDaClasse.sumOf { it.oferta }
+                val visitantesClasse = visitantesTrim.count { it.classeId == c.id }
+                RelTrimColuna(
+                    classeId = c.id,
+                    classeNome = c.nome,
+                    matriculados = matric,
+                    presentes = presentes,
+                    ausentes = ausentesSoma,
+                    visitantes = visitantesClasse,
+                    biblias = biblias,
+                    revistas = revistas,
+                    oferta = oferta
+                )
+            }
+        )
+    }
+
+    /** Carrega o relatório detalhado de UMA aula (data específica), respeitando o filtro de classe. */
+    fun abrirRelatorioDia(data: Long) = viewModelScope.launch {
+        val filtroClasse = _classeId.value
+        val nomes = repo.listarClasses().associate { it.id to it.nome }
+        val chamadasDoDia = repo.listarTodasChamadas()
+            .filter { it.data == data }
+            .filter { filtroClasse == null || it.classeId == filtroClasse }
+
+        val linhas = chamadasDoDia.map { ch ->
+            val presencas = repo.presencasDaChamada(ch.id)
+            val matric = presencas.size
+            val pres = presencas.count { it.presente }
+            val bibl = presencas.count { it.biblia && it.presente }
+            val rev  = presencas.count { it.revista && it.presente }
+            RelDiaLinhaClasse(
+                classeId = ch.classeId,
+                classeNome = nomes[ch.classeId] ?: "—",
+                matriculados = matric,
+                presentes = pres,
+                ausentes = matric - pres,
+                visitantes = ch.visitantes,
+                biblias = bibl,
+                revistas = rev,
+                oferta = ch.oferta,
+                licao = ch.licao
+            )
+        }.sortedBy { it.classeNome }
+        _relDia.value = RelDiaUi(data = data, linhas = linhas)
+    }
+
+    fun fecharRelatorioDia() { _relDia.value = null }
+}
+
+/* ----------------------- Finanças ----------------------- */
+class FinancasViewModel(app: Application) : AndroidViewModel(app) {
+    private val repo = app.repo()
+    val lancamentos = repo.financeiro.stateInDefault(viewModelScope, emptyList())
+    val resumoMes = repo.financeiro.map { list ->
+        val mes = YearMonth.now()
+        val doMes = list.filter { YearMonth.from(it.data.toLocalDate()) == mes }
+        ResumoMes(
+            doMes.filter { it.tipo == "ENTRADA" }.sumOf { it.valor },
+            doMes.filter { it.tipo == "SAIDA" }.sumOf { it.valor }
+        )
+    }.stateInDefault(viewModelScope, ResumoMes(0.0, 0.0))
+
+    fun salvar(f: Financeiro) = viewModelScope.launch { repo.salvarFinanceiro(f) }
+    fun deletar(f: Financeiro) = viewModelScope.launch { repo.deletarFinanceiro(f) }
+}
+
+/* ----------------------- Visitantes ----------------------- */
+class VisitantesViewModel(app: Application) : AndroidViewModel(app) {
+    private val repo = app.repo()
+    val classes = repo.classes.stateInDefault(viewModelScope, emptyList())
+    val lista: StateFlow<List<VisitanteUi>> =
+        combine(repo.visitantes, repo.classes) { vis, classes ->
+            val nomes = classes.associate { it.id to it.nome }
+            vis.map { VisitanteUi(it, it.classeId?.let { id -> nomes[id] } ?: "") }
+        }.stateInDefault(viewModelScope, emptyList())
+
+    fun salvar(v: Visitante) = viewModelScope.launch { repo.salvarVisitante(v) }
+    fun deletar(v: Visitante) = viewModelScope.launch { repo.deletarVisitante(v) }
+    fun converter(v: Visitante, classeId: Long) = viewModelScope.launch {
+        repo.converterVisitanteEmAluno(v, classeId)
+    }
+}
+
+/* ----------------------- Dashboard ----------------------- */
+class DashboardViewModel(app: Application) : AndroidViewModel(app) {
+    private val repo = app.repo()
+
+    val state: StateFlow<DashboardState> = combine(
+        repo.classes, repo.alunos, repo.chamadas, repo.financeiro, repo.visitantes
+    ) { classes, alunos, chamadas, fin, visit ->
+        val ultima = chamadas.firstOrNull()
+        
+        // Cálculo de saldo seguro
+        val mesAtual = try { YearMonth.now() } catch (e: Exception) { null }
+        val saldo = if (mesAtual != null) {
+            fin.filter { 
+                try { YearMonth.from(it.data.toLocalDate()) == mesAtual } catch (e: Exception) { false }
+            }.sumOf { if (it.tipo == "ENTRADA") it.valor else -it.valor }
+        } else 0.0
+
+        val nomesClasse = classes.associate { it.id to it.nome }
+        val aniv = alunos.filter { it.dataNascimento != null }.mapNotNull { a ->
+            try {
+                val info = calcularAniversario(a.dataNascimento!!)
+                AniversarianteUi(a.nome, nomesClasse[a.classeId] ?: "", a.dataNascimento,
+                    info.idadeQueFara, info.diaSemana, info.diasAte, quandoLabel(info.diasAte))
+            } catch (e: Exception) { null }
+        }.filter { it.diasAte <= 30 }.sortedBy { it.diasAte }
+
+        DashboardState(
+            totalClasses = classes.size,
+            totalAlunos = alunos.size,
+            ultimaData = ultima?.data,
+            ultimaPct = 0f,
+            saldoMes = saldo,
+            aniversariantes = aniv,
+            visitantesPendentes = visit.count { !it.convertido }
+        )
+    }.stateInDefault(viewModelScope, DashboardState())
+}
+
+/* ----------------------- Aniversariantes ----------------------- */
+class AniversariantesViewModel(app: Application) : AndroidViewModel(app) {
+    private val repo = app.repo()
+    val lista: StateFlow<List<AniversarianteUi>> =
+        combine(repo.alunos, repo.classes) { alunos, classes ->
+            val nomes = classes.associate { it.id to it.nome }
+            alunos.filter { it.dataNascimento != null }.mapNotNull { a ->
+                try {
+                    val info = calcularAniversario(a.dataNascimento!!)
+                    AniversarianteUi(a.nome, nomes[a.classeId] ?: "", a.dataNascimento,
+                        info.idadeQueFara, info.diaSemana, info.diasAte, quandoLabel(info.diasAte))
+                } catch (e: Exception) {
+                    null
+                }
+            }.sortedBy { it.diasAte }
+        }.stateInDefault(viewModelScope, emptyList())
+}
+
+private fun quandoLabel(dias: Long): String = when {
+    dias == 0L -> "🎂 Hoje"
+    dias <= 7 -> "Esta semana"
+    dias <= 31 -> "Este mês"
+    else -> "—"
+}
+
+private fun <T> Flow<T>.stateInDefault(scope: kotlinx.coroutines.CoroutineScope, initial: T) =
+    stateIn(scope, SharingStarted.WhileSubscribed(5_000), initial)
+
+/* ----------------------- Configurações ----------------------- */
+class SettingsViewModel(app: Application) : AndroidViewModel(app) {
+    private val repo = app.repo()
+    private val prefs = app.getSharedPreferences(SyncWorker.PREFS, android.content.Context.MODE_PRIVATE)
+
+    private val _isDarkMode = MutableStateFlow(prefs.getBoolean("dark_mode", false))
+    val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
+
+    private val _syncUrl = MutableStateFlow(prefs.getString(SyncWorker.KEY_URL, "") ?: "")
+    val syncUrl: StateFlow<String> = _syncUrl.asStateFlow()
+
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
+    /** Liga/desliga a sincronização automática (padrão: ligada). */
+    private val _autoSync = MutableStateFlow(prefs.getBoolean(SyncWorker.KEY_AUTO, true))
+    val autoSync: StateFlow<Boolean> = _autoSync.asStateFlow()
+
+    /** Momento da última sincronização bem-sucedida (0 = nunca). */
+    private val _lastSync = MutableStateFlow(prefs.getLong(SyncWorker.KEY_LAST, 0L))
+    val lastSync: StateFlow<Long> = _lastSync.asStateFlow()
+
+    /** A sincronização automática roda em segundo plano (worker). Como ela
+     *  grava o resultado nas SharedPreferences, ouvimos as mudanças para
+     *  refletir o "última sincronização" na tela em tempo real. */
+    private val prefsListener =
+        android.content.SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
+            when (key) {
+                SyncWorker.KEY_LAST -> _lastSync.value = p.getLong(SyncWorker.KEY_LAST, 0L)
+                SyncWorker.KEY_AUTO -> _autoSync.value = p.getBoolean(SyncWorker.KEY_AUTO, true)
+                SyncWorker.KEY_URL -> _syncUrl.value = p.getString(SyncWorker.KEY_URL, "") ?: ""
+            }
+        }
+
+    init { prefs.registerOnSharedPreferenceChangeListener(prefsListener) }
+
+    override fun onCleared() {
+        prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
+        super.onCleared()
+    }
+
+    fun setDarkMode(enabled: Boolean) {
+        viewModelScope.launch {
+            prefs.edit().putBoolean("dark_mode", enabled).apply()
+            _isDarkMode.value = enabled
+        }
+    }
+
+    fun setSyncUrl(url: String) {
+        prefs.edit().putString(SyncWorker.KEY_URL, url).apply()
+        _syncUrl.value = url
+        val ctx = getApplication<Application>()
+        if (url.isBlank()) {
+            SyncScheduler.cancelarPeriodico(ctx)
+        } else {
+            // passa a manter em dia sozinho e já puxa o que houver agora
+            SyncScheduler.agendarPeriodico(ctx)
+            SyncScheduler.sincronizarAgora(ctx)
+        }
+    }
+
+    fun setAutoSync(enabled: Boolean) {
+        prefs.edit().putBoolean(SyncWorker.KEY_AUTO, enabled).apply()
+        _autoSync.value = enabled
+        val ctx = getApplication<Application>()
+        if (enabled && _syncUrl.value.isNotBlank()) SyncScheduler.agendarPeriodico(ctx)
+        else SyncScheduler.cancelarPeriodico(ctx)
+    }
+
+    private fun registrarSucesso() {
+        val agora = System.currentTimeMillis()
+        prefs.edit()
+            .putLong(SyncWorker.KEY_LAST, agora)
+            .putBoolean(SyncWorker.KEY_LAST_OK, true)
+            .putString(SyncWorker.KEY_LAST_MSG, "")
+            .apply()
+        _lastSync.value = agora
+    }
+
+    /** Sincronização manual ("agora"): mesmo caminho do automático. */
+    fun sincronizar(onResult: (Boolean, String) -> Unit) {
+        val url = _syncUrl.value
+        if (url.isBlank()) { onResult(false, "Configure a URL da planilha primeiro"); return }
+        viewModelScope.launch {
+            _isSyncing.value = true
+            try {
+                repo.executarSync(url)
+                registrarSucesso()
+                onResult(true, "Sincronizado com sucesso!")
+            } catch (e: Exception) {
+                onResult(false, "Falha: ${e.message}")
+            } finally {
+                _isSyncing.value = false
+            }
+        }
+    }
+
+    /** Para celular novo: apaga o que está aqui e baixa tudo da planilha. */
+    fun baixarDaNuvem(onResult: (Boolean, String) -> Unit) {
+        val url = _syncUrl.value
+        if (url.isBlank()) { onResult(false, "Configure a URL da planilha primeiro"); return }
+        viewModelScope.launch {
+            _isSyncing.value = true
+            try {
+                val dados = SyncEngine.baixar(url)
+                repo.limparTudo()
+                repo.aplicarSync(dados)
+                registrarSucesso()
+                onResult(true, "Dados baixados da nuvem!")
+            } catch (e: Exception) {
+                onResult(false, "Falha: ${e.message}")
+            } finally {
+                _isSyncing.value = false
+            }
+        }
+    }
+
+    /**
+     * Apaga TODOS os dados do app (classes, membros, chamadas, finanças,
+     * visitantes) deixando o aplicativo "do zero". NÃO mexe nas preferências:
+     * a URL da planilha e o tema escolhido permanecem.
+     */
+    fun resetarApp(onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                repo.limparTudo()
+                onResult(true, "App resetado. Todos os dados foram apagados.")
+            } catch (e: Exception) {
+                onResult(false, "Falha ao resetar: ${e.message}")
+            }
+        }
+    }
+}

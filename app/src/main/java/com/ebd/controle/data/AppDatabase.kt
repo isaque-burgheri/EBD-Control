@@ -1,0 +1,72 @@
+package com.ebd.controle.data
+
+import android.content.Context
+import androidx.room.Database
+import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
+
+@Database(
+    entities = [Classe::class, Aluno::class, Chamada::class, Presenca::class, Financeiro::class, Visitante::class],
+    version = 6,
+    exportSchema = false
+)
+abstract class AppDatabase : RoomDatabase() {
+    abstract fun classeDao(): ClasseDao
+    abstract fun alunoDao(): AlunoDao
+    abstract fun chamadaDao(): ChamadaDao
+    abstract fun presencaDao(): PresencaDao
+    abstract fun financeiroDao(): FinanceiroDao
+    abstract fun visitanteDao(): VisitanteDao
+
+    companion object {
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `visitantes` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`nome` TEXT NOT NULL, `telefone` TEXT NOT NULL, " +
+                        "`data` INTEGER NOT NULL, `classeId` INTEGER, " +
+                        "`observacao` TEXT NOT NULL, `convertido` INTEGER NOT NULL DEFAULT 0)"
+                )
+            }
+        }
+
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE financeiro ADD COLUMN chamadaId INTEGER")
+            }
+        }
+
+        // Migração 5 -> 6: adiciona os campos de sincronização sem apagar dados.
+        // As colunas são anuláveis (ALTER ADD COLUMN simples) e os registros antigos
+        // recebem um uid permanente gerado na hora.
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val agora = System.currentTimeMillis()
+                val tabelas = listOf("classes", "alunos", "chamadas", "presencas", "financeiro", "visitantes")
+                for (t in tabelas) {
+                    db.execSQL("ALTER TABLE $t ADD COLUMN uid TEXT")
+                    db.execSQL("ALTER TABLE $t ADD COLUMN updatedAt INTEGER")
+                    db.execSQL("ALTER TABLE $t ADD COLUMN deleted INTEGER")
+                    db.execSQL("UPDATE $t SET uid = lower(hex(randomblob(16))) WHERE uid IS NULL")
+                    db.execSQL("UPDATE $t SET updatedAt = $agora WHERE updatedAt IS NULL")
+                    db.execSQL("UPDATE $t SET deleted = 0 WHERE deleted IS NULL")
+                }
+            }
+        }
+
+        @Volatile private var INSTANCE: AppDatabase? = null
+        fun get(context: Context): AppDatabase =
+            INSTANCE ?: synchronized(this) {
+                INSTANCE ?: Room.databaseBuilder(
+                    context.applicationContext,
+                    AppDatabase::class.java,
+                    "ebd-controle.db"
+                ).addMigrations(MIGRATION_1_2, MIGRATION_4_5, MIGRATION_5_6)
+                    .fallbackToDestructiveMigration()
+                    .build().also { INSTANCE = it }
+            }
+    }
+}
