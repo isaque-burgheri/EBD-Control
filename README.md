@@ -9,6 +9,48 @@ em nuvem** opcional via Google Sheets + Apps Script.
 
 ---
 
+## Screenshots
+
+Tela inicial nos dois temas — **claro (branco editorial)** e **escuro (tinta-violeta)**:
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/dashboard-claro.png" width="250"><br>
+      <sub><b>Início · tema claro</b></sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/dashboard-escuro.png" width="250"><br>
+      <sub><b>Início · tema escuro</b></sub>
+    </td>
+  </tr>
+</table>
+
+Chamada/presença, relatórios por trimestre e cadastro de membros:
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/chamada-claro.png" width="250"><br>
+      <sub><b>Chamada</b></sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/relatorios-claro.png" width="250"><br>
+      <sub><b>Relatórios</b></sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/membros-claro.png" width="250"><br>
+      <sub><b>Membros</b></sub>
+    </td>
+  </tr>
+</table>
+
+> As imagens acima são **mockups de apresentação** das telas (mesma paleta, tipografia e
+> layout do app), guardadas em `docs/screenshots/`. Para usar capturas reais, basta
+> substituir os arquivos dessa pasta mantendo os nomes.
+
+---
+
 ## 1. Pré-requisitos
 - **Android Studio** (versão recente — ex.: Ladybug/Meerkat ou mais novo).
 - **JDK 17** (já vem embutido no Android Studio).
@@ -72,11 +114,18 @@ Permite que **vários celulares** usem os mesmos dados, compartilhando uma plani
 
 ## 6. Aparência (tema claro e escuro)
 - Toggle em **Configurações → Aparência → Tema Escuro**.
-- **Tema claro**: estilo "agenda do dia" — off-white quente, cards brancos
-  arredondados, acento âmbar/coral, tipografia geométrica (Plus Jakarta Sans).
-- **Tema escuro**: estilo contemplativo — fundo azul-noite em gradiente, painéis
-  translúcidos, acento prata-lunar, títulos em serifa elegante (Fraunces).
-- Fontes embarcadas no APK (`res/font/`), sob a Open Font License.
+- **Tema claro — _branco editorial_**: fundo branco quente com um leve degradê
+  "papel", cards de borda fina e cantos arredondados, **preto quente (#1A1615)**
+  como cor de ação e o **verde-limão** da marca como acento de destaque — usado com
+  parcimônia, sempre como preenchimento (pílula da navegação, FAB, "marca-texto").
+- **Tema escuro — _tinta-violeta_**: fundo quase-preto com um véu violeta,
+  superfícies carvão e um acento **índigo/periwinkle** nos momentos de ação
+  (botões e pílula de navegação); um **lilás** sereno e bem legível conduz ícones,
+  números e metadados. Sem azul, sem preto frio.
+- **Tipografia editorial** em todo o app: manchetes em **Playfair Display**
+  (serifa, com itálico realçando uma palavra-chave) e corpo, dados, labels e
+  *kickers* em **Geist**.
+- Fontes embarcadas no APK (`res/font/`), sob a SIL Open Font License.
 
 ## 7. Personalização rápida
 - Nome do app: `app/src/main/res/values/strings.xml`.
@@ -102,7 +151,7 @@ app/src/main/
 │       ├── nav/Navigation.kt  # barra inferior + roteamento
 │       └── screens/           # 10 telas (Dashboard, Chamada, etc.)
 └── res/
-    ├── font/                  # Plus Jakarta Sans + Fraunces
+    ├── font/                  # Geist + Playfair Display
     └── values/                # strings.xml, themes.xml, colors.xml
 ```
 
@@ -116,5 +165,6 @@ app/src/main/
 - **`minSdk` é 26** (Android 8.0+), exigido pelas fontes variáveis do tema.
 
 ## 10. Créditos
-- **Plus Jakarta Sans** — Tokotype, sob a SIL Open Font License 1.1.
-- **Fraunces** — Undercase Type, sob a SIL Open Font License 1.1.
+- **Geist** — Vercel, sob a SIL Open Font License 1.1.
+- **Playfair Display** — Claus Eggers Sørensen, sob a SIL Open Font License 1.1.
+- Ícones no estilo Material Symbols (Google), sob a Apache License 2.0.
