@@ -33,12 +33,19 @@ private val RaioCard = 16.dp
  * Vale nos dois temas.
  */
 @Composable
-fun realceSwitchColors() = SwitchDefaults.colors(
-    checkedThumbColor = RealceConteudo,
-    checkedTrackColor = Realce,
-    checkedBorderColor = Color.Transparent,
-    checkedIconColor = Realce
-)
+fun realceSwitchColors(): SwitchColors {
+    val escuro = com.ebd.controle.ui.theme.LocalAppBrushes.current.escuro
+    // No escuro a "cápsula" verde-limão destoaria da paleta violeta — então o
+    // ON usa o índigo da marca noturna (trilho periwinkle + polegar tinta).
+    val trilho = if (escuro) MaterialTheme.colorScheme.primary else Realce
+    val polegar = if (escuro) MaterialTheme.colorScheme.onPrimary else RealceConteudo
+    return SwitchDefaults.colors(
+        checkedThumbColor = polegar,
+        checkedTrackColor = trilho,
+        checkedBorderColor = Color.Transparent,
+        checkedIconColor = trilho
+    )
+}
 
 /**
  * Kicker / eyebrow editorial: rótulo curto em CAIXA ALTA com tracking largo,
