@@ -82,17 +82,13 @@ fun DashboardScreen(nav: NavController) {
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCard(
-                    "Última Chamada", "${(s.ultimaPct * 100).toInt()}%",
-                    subtitle = s.ultimaData?.let { formatarData(it) } ?: "Nenhuma realizada",
-                    accent = Verde, modifier = Modifier.weight(1f)
-                )
-                StatCard(
-                    "Saldo do Mês", formatarMoeda(s.saldoMes),
-                    accent = if (s.saldoMes >= 0) Verde else Vermelho, modifier = Modifier.weight(1f)
-                )
-            }
+            // Saldo do mês em destaque, ocupando a largura toda
+            StatCard(
+                "Saldo do Mês", formatarMoeda(s.saldoMes),
+                subtitle = if (s.saldoMes >= 0) "No azul este mês" else "No vermelho este mês",
+                accent = if (s.saldoMes >= 0) Verde else Vermelho,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         // ----- Destaque de visitantes -----
