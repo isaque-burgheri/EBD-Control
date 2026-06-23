@@ -3,6 +3,7 @@ package com.ebd.controle.data
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
@@ -27,6 +28,27 @@ fun formatarDataCurta(millis: Long): String =
 fun formatarMesAno(millis: Long): String = millis.toLocalDate().format(fmtMesAno)
 
 fun hojeMillis(): Long = LocalDate.now().toMillis()
+
+/**
+ * O DatePicker do Material3 devolve a data escolhida como meia-noite em UTC.
+ * O resto do app trabalha com meia-noite no fuso local (hojeMillis()/toMillis()),
+ * então convertemos para o mesmo padrão — senão a data escolhida no seletor não
+ * "casa" com a data gravada na chamada e editar/excluir dias anteriores falha.
+ */
+fun Long.utcParaDiaLocal(): Long =
+    Instant.ofEpochMilli(this).atZone(ZoneOffset.UTC).toLocalDate().toMillis()
+
+/**
+ * Intervalo [início, fim) em UTC do dia-calendário a que este instante pertence.
+ * Usado para casar a chamada pela DATA tolerando diferenças de fuso/horário
+ * (chamada lançada ao vivo x chamada lançada pelo seletor de data).
+ */
+fun Long.intervaloDoDiaUtc(): Pair<Long, Long> {
+    val dia = Instant.ofEpochMilli(this).atZone(ZoneOffset.UTC).toLocalDate()
+    val ini = dia.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    val fim = dia.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    return ini to fim
+}
 
 fun formatarMoeda(valor: Double): String =
     "R$ " + String.format(Locale("pt", "BR"), "%,.2f", valor)

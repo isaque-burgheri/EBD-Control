@@ -76,6 +76,9 @@ interface ChamadaDao {
     @Query("SELECT * FROM chamadas WHERE classeId = :classeId AND data = :data AND IFNULL(deleted,0)=0 LIMIT 1")
     suspend fun buscar(classeId: Long, data: Long): Chamada?
 
+    @Query("SELECT * FROM chamadas WHERE classeId = :classeId AND data >= :ini AND data < :fim AND IFNULL(deleted,0)=0 ORDER BY data DESC LIMIT 1")
+    suspend fun buscarNoDia(classeId: Long, ini: Long, fim: Long): Chamada?
+
     @Query("SELECT * FROM chamadas WHERE IFNULL(deleted,0)=0 ORDER BY data DESC LIMIT 1")
     suspend fun ultima(): Chamada?
 

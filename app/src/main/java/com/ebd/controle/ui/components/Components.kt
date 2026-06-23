@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ebd.controle.data.formatarData
 import com.ebd.controle.data.hojeMillis
+import com.ebd.controle.data.utcParaDiaLocal
 import com.ebd.controle.ui.theme.Realce
 import com.ebd.controle.ui.theme.RealceConteudo
 
@@ -115,7 +116,10 @@ fun DateField(label: String, millis: Long?, onPick: (Long) -> Unit, modifier: Mo
         DatePickerDialog(
             onDismissRequest = { show = false },
             confirmButton = {
-                TextButton(onClick = { st.selectedDateMillis?.let(onPick); show = false }) { Text("OK") }
+                TextButton(onClick = {
+                    st.selectedDateMillis?.let { onPick(it.utcParaDiaLocal()) }
+                    show = false
+                }) { Text("OK") }
             },
             dismissButton = { TextButton(onClick = { show = false }) { Text("Cancelar") } }
         ) { DatePicker(state = st) }

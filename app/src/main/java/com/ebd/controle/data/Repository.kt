@@ -56,7 +56,8 @@ class Repository(private val db: AppDatabase) {
 
     suspend fun salvarChamada(chamada: Chamada, presencas: List<Presenca>): Long {
         val t = agora()
-        val existente = chamadaDao.buscar(chamada.classeId, chamada.data)
+        val (ini, fim) = chamada.data.intervaloDoDiaUtc()
+        val existente = chamadaDao.buscarNoDia(chamada.classeId, ini, fim)
         val chamadaUid = existente?.uid ?: chamada.uid ?: novoUid()
         val cid: Long = if (existente == null) {
             chamadaDao.inserir(chamada.copy(uid = chamadaUid, updatedAt = t, deleted = false))
@@ -92,7 +93,10 @@ class Repository(private val db: AppDatabase) {
     }
 
     /** Chamada já registrada para uma classe numa data (null se não existir). */
-    suspend fun buscarChamada(classeId: Long, data: Long) = chamadaDao.buscar(classeId, data)
+    suspend fun buscarChamada(classeId: Long, data: Long): Chamada? {
+        val (ini, fim) = data.intervaloDoDiaUtc()
+        return chamadaDao.buscarNoDia(classeId, ini, fim)
+    }
 
     /**
      * Exclui uma chamada (soft-delete, para sincronizar a exclusão): marca a
