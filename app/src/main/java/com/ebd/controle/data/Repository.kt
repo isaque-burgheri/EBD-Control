@@ -11,6 +11,8 @@ class Repository(private val db: AppDatabase) {
     private val chamadaDao = db.chamadaDao()
     private val presencaDao = db.presencaDao()
     private val financeiroDao = db.financeiroDao()
+    private val revistaPrecoDao = db.revistaPrecoDao()
+    private val revistaEntregaDao = db.revistaEntregaDao()
     private val visitanteDao = db.visitanteDao()
 
     private fun novoUid() = UUID.randomUUID().toString()
@@ -123,6 +125,73 @@ class Repository(private val db: AppDatabase) {
     }
     suspend fun deletarFinanceiro(f: Financeiro) { financeiroDao.atualizar(f.copy(deleted = true, updatedAt = agora())) }
 
+    // ---------------- Revistas ----------------
+    val revistasPrecos = revistaPrecoDao.observarTodos()
+    val revistasEntregas = revistaEntregaDao.observarTodas()
+    suspend fun listarPrecosRevista() = revistaPrecoDao.listarTodos()
+
+    suspend fun salvarPrecoRevista(r: RevistaPreco): Long {
+        val t = agora()
+        return if (r.id == 0L) revistaPrecoDao.inserir(r.copy(uid = r.uid ?: novoUid(), updatedAt = t, deleted = false))
+        else { revistaPrecoDao.atualizar(r.copy(uid = r.uid ?: novoUid(), updatedAt = t)); r.id }
+    }
+    suspend fun deletarPrecoRevista(r: RevistaPreco) {
+        revistaPrecoDao.atualizar(r.copy(deleted = true, updatedAt = agora()))
+    }
+
+    suspend fun entregasDoTrimestre(ano: Int, trim: Int) = revistaEntregaDao.listarPorTrimestre(ano, trim)
+
+    /**
+     * Define (ou remove) a revista de um aluno num trimestre.
+     *  - tipo == null  -> sem revista: marca a entrega como excluída e remove a despesa
+     *  - tipo "DIGITAL"-> entrega gratuita (sem despesa)
+     *  - tipo "FISICA" -> entrega paga: gera/atualiza um lançamento de SAÍDA
+     *
+     * A despesa é vinculada por um uid determinístico (entregaUid + ":revista"),
+     * exatamente como a oferta da chamada — ao desmarcar, ela é removida (soft-delete).
+     */
+    suspend fun definirRevistaAluno(
+        alunoId: Long, ano: Int, trim: Int,
+        tipo: String?, categoria: String, preco: Double, nomeAluno: String
+    ) {
+        val t = agora()
+        val alunoUid = alunoDao.porId(alunoId)?.uid ?: return
+        val entregaUid = "$alunoUid:$ano:$trim:revista"
+        val existente = revistaEntregaDao.porUid(entregaUid)
+            ?: revistaEntregaDao.buscar(alunoId, ano, trim)
+        val finUid = "$entregaUid:despesa"
+        val finEx = financeiroDao.porUid(finUid)
+
+        if (tipo == null) {
+            // Sem revista: remove entrega e despesa (se existiam)
+            existente?.let { revistaEntregaDao.atualizar(it.copy(deleted = true, updatedAt = t)) }
+            finEx?.let { financeiroDao.atualizar(it.copy(deleted = true, updatedAt = t)) }
+            return
+        }
+
+        val valor = if (tipo == "FISICA") preco else 0.0
+        val entrega = RevistaEntrega(
+            id = existente?.id ?: 0L, alunoId = alunoId, ano = ano, trimestre = trim,
+            tipo = tipo, categoria = categoria, preco = valor,
+            uid = existente?.uid ?: entregaUid, updatedAt = t, deleted = false
+        )
+        if (existente == null) revistaEntregaDao.inserir(entrega) else revistaEntregaDao.atualizar(entrega)
+
+        // Despesa apenas para revista física com valor > 0
+        if (tipo == "FISICA" && valor > 0) {
+            val desc = "Revista - $categoria - $nomeAluno"
+            val f = Financeiro(
+                id = finEx?.id ?: 0L, data = t, tipo = "SAIDA",
+                categoria = "Revista (${trim}º Trim./$ano)", valor = valor,
+                descricao = desc, chamadaId = null,
+                uid = finEx?.uid ?: finUid, updatedAt = t, deleted = false
+            )
+            if (finEx == null) financeiroDao.inserir(f) else financeiroDao.atualizar(f)
+        } else if (finEx != null) {
+            financeiroDao.atualizar(finEx.copy(deleted = true, updatedAt = t))
+        }
+    }
+
     // ---------------- Visitantes ----------------
     val visitantes = visitanteDao.observarTodos()
     suspend fun listarVisitantes() = visitanteDao.listarTodos()
@@ -146,6 +215,7 @@ class Repository(private val db: AppDatabase) {
     /** Apaga TODOS os dados (restauração de backup / inicializar pela nuvem). */
     suspend fun limparTudo() {
         presencaDao.deletarTudo(); chamadaDao.deletarTudo(); visitanteDao.deletarTudo()
+        revistaEntregaDao.deletarTudo(); revistaPrecoDao.deletarTudo()
         alunoDao.deletarTudo(); classeDao.deletarTudo(); financeiroDao.deletarTudo()
     }
 
@@ -162,6 +232,8 @@ class Repository(private val db: AppDatabase) {
         val cha = chamadaDao.todosIncl()
         val pre = presencaDao.todosIncl()
         val fin = financeiroDao.todosIncl()
+        val rpr = revistaPrecoDao.todosIncl()
+        val ren = revistaEntregaDao.todosIncl()
         val vis = visitanteDao.todosIncl()
 
         val uidClasse = cls.associate { it.id to (it.uid ?: "") }
@@ -206,6 +278,18 @@ class Repository(private val db: AppDatabase) {
                 .put("uid", it.uid).put("nome", it.nome).put("telefone", it.telefone).put("data", it.data)
                 .put("classeUid", it.classeId?.let { id -> uidClasse[id] } ?: "")
                 .put("observacao", it.observacao).put("convertido", b(it.convertido))
+                .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
+        })
+        root.put("revistasPrecos", JSONArray().apply {
+            rpr.forEach { put(JSONObject()
+                .put("uid", it.uid).put("categoria", it.categoria).put("preco", it.preco)
+                .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
+        })
+        root.put("revistasEntregas", JSONArray().apply {
+            ren.forEach { put(JSONObject()
+                .put("uid", it.uid).put("alunoUid", uidAluno[it.alunoId] ?: "")
+                .put("ano", it.ano).put("trimestre", it.trimestre).put("tipo", it.tipo)
+                .put("categoria", it.categoria).put("preco", it.preco)
                 .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
         })
         return root
@@ -292,6 +376,30 @@ class Repository(private val db: AppDatabase) {
                 uid = uid, updatedAt = rUpd, deleted = rDel)
             if (local == null) visitanteDao.inserir(dados2)
             else if (rUpd > (local.updatedAt ?: 0L)) visitanteDao.atualizar(dados2.copy(id = local.id))
+        }
+
+        // REVISTAS - PREÇOS
+        eachObj(dados.optJSONArray("revistasPrecos")) { o ->
+            val uid = jStr(o, "uid"); if (uid.isBlank()) return@eachObj
+            val rUpd = jLong(o, "updatedAt"); val rDel = jBool(o, "deleted")
+            val local = revistaPrecoDao.porUid(uid)
+            val dados2 = RevistaPreco(categoria = jStr(o, "categoria"), preco = jDouble(o, "preco"),
+                uid = uid, updatedAt = rUpd, deleted = rDel)
+            if (local == null) revistaPrecoDao.inserir(dados2)
+            else if (rUpd > (local.updatedAt ?: 0L)) revistaPrecoDao.atualizar(dados2.copy(id = local.id))
+        }
+
+        // REVISTAS - ENTREGAS
+        eachObj(dados.optJSONArray("revistasEntregas")) { o ->
+            val uid = jStr(o, "uid"); if (uid.isBlank()) return@eachObj
+            val aId = mapaAluno[jStr(o, "alunoUid")] ?: return@eachObj
+            val rUpd = jLong(o, "updatedAt"); val rDel = jBool(o, "deleted")
+            val local = revistaEntregaDao.porUid(uid)
+            val dados2 = RevistaEntrega(alunoId = aId, ano = jInt(o, "ano"), trimestre = jInt(o, "trimestre"),
+                tipo = jStr(o, "tipo").ifBlank { "FISICA" }, categoria = jStr(o, "categoria"),
+                preco = jDouble(o, "preco"), uid = uid, updatedAt = rUpd, deleted = rDel)
+            if (local == null) revistaEntregaDao.inserir(dados2)
+            else if (rUpd > (local.updatedAt ?: 0L)) revistaEntregaDao.atualizar(dados2.copy(id = local.id))
         }
     }
 }

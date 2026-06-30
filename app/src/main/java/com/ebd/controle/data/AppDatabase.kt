@@ -8,8 +8,9 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Classe::class, Aluno::class, Chamada::class, Presenca::class, Financeiro::class, Visitante::class],
-    version = 6,
+    entities = [Classe::class, Aluno::class, Chamada::class, Presenca::class, Financeiro::class,
+        RevistaPreco::class, RevistaEntrega::class, Visitante::class],
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -18,6 +19,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun chamadaDao(): ChamadaDao
     abstract fun presencaDao(): PresencaDao
     abstract fun financeiroDao(): FinanceiroDao
+    abstract fun revistaPrecoDao(): RevistaPrecoDao
+    abstract fun revistaEntregaDao(): RevistaEntregaDao
     abstract fun visitanteDao(): VisitanteDao
 
     companion object {
@@ -57,6 +60,44 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Migração 6 -> 7: cria as tabelas de revistas (preços por categoria e
+        // entregas por aluno/trimestre) já com os campos de sincronização.
+        // Pré-popula categorias comuns da CPAD com preços-base (editáveis na tela).
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val agora = System.currentTimeMillis()
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `revistas_precos` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`categoria` TEXT NOT NULL, `preco` REAL NOT NULL DEFAULT 0, " +
+                        "`uid` TEXT, `updatedAt` INTEGER, `deleted` INTEGER)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `revistas_entregas` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`alunoId` INTEGER NOT NULL, `ano` INTEGER NOT NULL, `trimestre` INTEGER NOT NULL, " +
+                        "`tipo` TEXT NOT NULL DEFAULT 'FISICA', `categoria` TEXT NOT NULL DEFAULT '', " +
+                        "`preco` REAL NOT NULL DEFAULT 0, " +
+                        "`uid` TEXT, `updatedAt` INTEGER, `deleted` INTEGER)"
+                )
+
+                // Categorias e preços-base padrão (ajustáveis depois na tela).
+                val padroes = listOf(
+                    "Adultos" to 9.90, "Jovens" to 9.90, "Adolescentes" to 9.90,
+                    "Juvenis" to 9.90, "Juniores" to 9.90, "Primários" to 9.90,
+                    "Maternal" to 9.90, "Jardim de Infância" to 9.90, "Berçário" to 9.90
+                )
+                for ((cat, preco) in padroes) {
+                    val uid = java.util.UUID.randomUUID().toString()
+                    db.execSQL(
+                        "INSERT INTO revistas_precos (categoria, preco, uid, updatedAt, deleted) VALUES (?, ?, ?, ?, 0)",
+                        arrayOf<Any>(cat, preco, uid, agora)
+                    )
+                }
+            }
+        }
+
         @Volatile private var INSTANCE: AppDatabase? = null
         fun get(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
@@ -64,7 +105,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "ebd-controle.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_4_5, MIGRATION_5_6)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .fallbackToDestructiveMigration()
                     .build().also { INSTANCE = it }
             }

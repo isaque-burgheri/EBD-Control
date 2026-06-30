@@ -77,6 +77,43 @@ data class Financeiro(
     val deleted: Boolean? = null
 )
 
+/**
+ * Tabela de preços das revistas por categoria (ex.: "Adultos", "Jovens").
+ * O preço é editável na tela; a categoria física é o que entra na descrição
+ * do lançamento financeiro. Revista digital (PDF) é sempre gratuita.
+ */
+@Entity(tableName = "revistas_precos")
+data class RevistaPreco(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val categoria: String,
+    val preco: Double = 0.0,
+    val uid: String? = null,
+    val updatedAt: Long? = null,
+    val deleted: Boolean? = null
+)
+
+/**
+ * Entrega de revista a um aluno num trimestre.
+ *  - tipo: "FISICA" (gera despesa) ou "DIGITAL" (gratuita)
+ *  - categoria/preco: copiados no momento da entrega (histórico fica fixo
+ *    mesmo que o preço de tabela mude depois)
+ *  - ano/trimestre: identificam o trimestre EBD (1..4)
+ * Um registro por aluno por trimestre (uid determinístico evita duplicar).
+ */
+@Entity(tableName = "revistas_entregas")
+data class RevistaEntrega(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val alunoId: Long,
+    val ano: Int,
+    val trimestre: Int,
+    val tipo: String = "FISICA",
+    val categoria: String = "",
+    val preco: Double = 0.0,
+    val uid: String? = null,
+    val updatedAt: Long? = null,
+    val deleted: Boolean? = null
+)
+
 @Entity(tableName = "visitantes")
 data class Visitante(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

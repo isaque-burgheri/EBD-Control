@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.*
@@ -167,6 +168,7 @@ fun DashboardScreen(nav: NavController) {
         // ----- Atalhos -----
         item { SecaoTitulo("Atalhos") }
         item { AtalhoCard("Relatórios e gráficos", Icons.Filled.BarChart) { nav.navigate("relatorios") } }
+        item { AtalhoCard("Revistas dos alunos", Icons.Filled.MenuBook) { nav.navigate("revistas") } }
         item { AtalhoCard("Classes e professores", Icons.Filled.School) { nav.navigate("classes") } }
         item { AtalhoCard("Ver todos os aniversariantes", Icons.Filled.Cake) { nav.navigate("aniversarios") } }
         item { AtalhoCard("Backup e dados (exportar/importar)", Icons.Filled.CloudSync) { nav.navigate("backup") } }

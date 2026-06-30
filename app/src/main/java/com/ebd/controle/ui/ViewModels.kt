@@ -338,6 +338,63 @@ class FinancasViewModel(app: Application) : AndroidViewModel(app) {
     fun deletar(f: Financeiro) = viewModelScope.launch { repo.deletarFinanceiro(f) }
 }
 
+/* ----------------------- Revistas ----------------------- */
+/** Linha da tela de revistas: um aluno + a entrega atual (se houver) no trimestre. */
+data class RevistaAlunoUi(
+    val aluno: Aluno,
+    val classeNome: String,
+    val entrega: RevistaEntrega?
+)
+
+class RevistasViewModel(app: Application) : AndroidViewModel(app) {
+    private val repo = app.repo()
+
+    val precos = repo.revistasPrecos.stateInDefault(viewModelScope, emptyList())
+
+    /** Trimestre selecionado (inicia no atual). */
+    private val _trimestre = MutableStateFlow(Trimestre.atual())
+    val trimestre: StateFlow<Trimestre> = _trimestre.asStateFlow()
+
+    /** Filtro de classe; null = todas. */
+    private val _classeId = MutableStateFlow<Long?>(null)
+    val classeId: StateFlow<Long?> = _classeId.asStateFlow()
+
+    val classes = repo.classes.stateInDefault(viewModelScope, emptyList())
+
+    private val _linhas = MutableStateFlow<List<RevistaAlunoUi>>(emptyList())
+    val linhas: StateFlow<List<RevistaAlunoUi>> = _linhas.asStateFlow()
+
+    init { recarregar() }
+
+    fun setTrimestre(t: Trimestre) { _trimestre.value = t; recarregar() }
+    fun setClasse(id: Long?) { _classeId.value = id; recarregar() }
+
+    fun recarregar() = viewModelScope.launch {
+        val t = _trimestre.value
+        val alunos = repo.listarTodosAlunos().filter { it.ativo }
+        val nomes = repo.listarClasses().associate { it.id to it.nome }
+        val entregas = repo.entregasDoTrimestre(t.ano, t.numero).associateBy { it.alunoId }
+        val filtro = _classeId.value
+        _linhas.value = alunos
+            .filter { filtro == null || it.classeId == filtro }
+            .map { RevistaAlunoUi(it, nomes[it.classeId] ?: "", entregas[it.id]) }
+            .sortedWith(compareBy({ it.classeNome }, { it.aluno.nome }))
+    }
+
+    /** tipo = "FISICA" | "DIGITAL" | null (sem revista). */
+    fun definir(aluno: Aluno, tipo: String?, categoria: String, preco: Double) =
+        viewModelScope.launch {
+            repo.definirRevistaAluno(
+                alunoId = aluno.id, ano = _trimestre.value.ano, trim = _trimestre.value.numero,
+                tipo = tipo, categoria = categoria, preco = preco, nomeAluno = aluno.nome
+            )
+            recarregar()
+        }
+
+    fun salvarPreco(r: RevistaPreco) = viewModelScope.launch { repo.salvarPrecoRevista(r); recarregar() }
+    fun deletarPreco(r: RevistaPreco) = viewModelScope.launch { repo.deletarPrecoRevista(r) }
+}
+
 /* ----------------------- Visitantes ----------------------- */
 class VisitantesViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = app.repo()

@@ -132,6 +132,44 @@ interface FinanceiroDao {
 }
 
 @Dao
+interface RevistaPrecoDao {
+    @Query("SELECT * FROM revistas_precos WHERE IFNULL(deleted,0)=0 ORDER BY categoria")
+    fun observarTodos(): Flow<List<RevistaPreco>>
+
+    @Query("SELECT * FROM revistas_precos WHERE IFNULL(deleted,0)=0 ORDER BY categoria")
+    suspend fun listarTodos(): List<RevistaPreco>
+
+    @Query("SELECT COUNT(*) FROM revistas_precos WHERE IFNULL(deleted,0)=0")
+    suspend fun contar(): Int
+
+    @Query("SELECT * FROM revistas_precos") suspend fun todosIncl(): List<RevistaPreco>
+    @Query("SELECT * FROM revistas_precos WHERE uid = :uid LIMIT 1") suspend fun porUid(uid: String): RevistaPreco?
+
+    @Insert suspend fun inserir(r: RevistaPreco): Long
+    @Update suspend fun atualizar(r: RevistaPreco)
+    @Query("DELETE FROM revistas_precos") suspend fun deletarTudo()
+}
+
+@Dao
+interface RevistaEntregaDao {
+    @Query("SELECT * FROM revistas_entregas WHERE IFNULL(deleted,0)=0")
+    fun observarTodas(): Flow<List<RevistaEntrega>>
+
+    @Query("SELECT * FROM revistas_entregas WHERE ano = :ano AND trimestre = :trim AND IFNULL(deleted,0)=0")
+    suspend fun listarPorTrimestre(ano: Int, trim: Int): List<RevistaEntrega>
+
+    @Query("SELECT * FROM revistas_entregas WHERE alunoId = :alunoId AND ano = :ano AND trimestre = :trim AND IFNULL(deleted,0)=0 LIMIT 1")
+    suspend fun buscar(alunoId: Long, ano: Int, trim: Int): RevistaEntrega?
+
+    @Query("SELECT * FROM revistas_entregas") suspend fun todosIncl(): List<RevistaEntrega>
+    @Query("SELECT * FROM revistas_entregas WHERE uid = :uid LIMIT 1") suspend fun porUid(uid: String): RevistaEntrega?
+
+    @Insert suspend fun inserir(r: RevistaEntrega): Long
+    @Update suspend fun atualizar(r: RevistaEntrega)
+    @Query("DELETE FROM revistas_entregas") suspend fun deletarTudo()
+}
+
+@Dao
 interface VisitanteDao {
     @Query("SELECT * FROM visitantes WHERE IFNULL(deleted,0)=0 ORDER BY data DESC")
     fun observarTodos(): Flow<List<Visitante>>
