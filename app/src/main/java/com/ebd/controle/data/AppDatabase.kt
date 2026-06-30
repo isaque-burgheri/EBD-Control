@@ -61,12 +61,10 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         // Migração 6 -> 7: cria as tabelas de revistas (preços por categoria e
-        // entregas por aluno/trimestre) já com os campos de sincronização.
-        // Pré-popula categorias comuns da CPAD com preços-base (editáveis na tela).
+        // entregas por aluno/trimestre) com os campos de sincronização.
+        // Não pré-popula dados: categorias e preços vêm do sync.
         private val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                val agora = System.currentTimeMillis()
-
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `revistas_precos` (" +
                         "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
@@ -82,19 +80,9 @@ abstract class AppDatabase : RoomDatabase() {
                         "`uid` TEXT, `updatedAt` INTEGER, `deleted` INTEGER)"
                 )
 
-                // Categorias e preços-base padrão (ajustáveis depois na tela).
-                val padroes = listOf(
-                    "Adultos" to 9.90, "Jovens" to 9.90, "Adolescentes" to 9.90,
-                    "Juvenis" to 9.90, "Juniores" to 9.90, "Primários" to 9.90,
-                    "Maternal" to 9.90, "Jardim de Infância" to 9.90, "Berçário" to 9.90
-                )
-                for ((cat, preco) in padroes) {
-                    val uid = java.util.UUID.randomUUID().toString()
-                    db.execSQL(
-                        "INSERT INTO revistas_precos (categoria, preco, uid, updatedAt, deleted) VALUES (?, ?, ?, ?, 0)",
-                        arrayOf<Any>(cat, preco, uid, agora)
-                    )
-                }
+                // Não pré-popula categorias: os preços vêm da sincronização
+                // (mesmo mecanismo do resto do app). Numa instalação sem sync,
+                // o usuário cadastra as categorias uma vez pela tela "Preços".
             }
         }
 
