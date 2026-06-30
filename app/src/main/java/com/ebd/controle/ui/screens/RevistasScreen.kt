@@ -31,7 +31,6 @@ import com.ebd.controle.ui.RevistaAlunoUi
 import com.ebd.controle.ui.RevistasViewModel
 import com.ebd.controle.ui.components.Dropdown
 import com.ebd.controle.ui.theme.Verde
-import com.ebd.controle.ui.theme.Vermelho
 
 @Composable
 fun RevistasScreen() {
@@ -44,21 +43,24 @@ fun RevistasScreen() {
 
     var alunoSelecionado by remember { mutableStateOf<RevistaAlunoUi?>(null) }
     var mostrarPrecos by remember { mutableStateOf(false) }
+    var abaSelecionada by remember { mutableStateOf(0) }
 
     val opcoesFiltro = listOf("Todas as classes") + classes.map { it.nome }
     val filtroIdx = if (classeId == null) 0 else (classes.indexOfFirst { it.id == classeId } + 1).coerceAtLeast(0)
 
     val totalFisicas = linhas.count { it.entrega?.tipo == "FISICA" }
     val totalDigitais = linhas.count { it.entrega?.tipo == "DIGITAL" }
-    val totalDespesa = linhas.filter { it.entrega?.tipo == "FISICA" }.sumOf { it.entrega?.preco ?: 0.0 }
+    val totalSem = linhas.count { it.entrega == null }
 
     Scaffold(
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { mostrarPrecos = true },
-                icon = { Icon(Icons.Filled.AttachMoney, contentDescription = null) },
-                text = { Text("Preços") }
-            )
+            if (abaSelecionada == 0) {
+                ExtendedFloatingActionButton(
+                    onClick = { mostrarPrecos = true },
+                    icon = { Icon(Icons.Filled.AttachMoney, contentDescription = null) },
+                    text = { Text("Preços") }
+                )
+            }
         }
     ) { p ->
         Column(Modifier.fillMaxSize().padding(p).padding(horizontal = 12.dp)) {
@@ -88,6 +90,14 @@ fun RevistasScreen() {
             )
 
             Spacer(Modifier.height(8.dp))
+            TabRow(selectedTabIndex = abaSelecionada, containerColor = Color.Transparent) {
+                Tab(selected = abaSelecionada == 0, onClick = { abaSelecionada = 0 },
+                    text = { Text("Registrar") })
+                Tab(selected = abaSelecionada == 1, onClick = { abaSelecionada = 1 },
+                    text = { Text("Visão geral") })
+            }
+
+            Spacer(Modifier.height(8.dp))
             Card(
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
@@ -98,39 +108,17 @@ fun RevistasScreen() {
                 ) {
                     ResumoItem("Físicas", totalFisicas.toString(), Verde)
                     ResumoItem("Digitais", totalDigitais.toString(), MaterialTheme.colorScheme.primary)
-                    ResumoItem("Despesa", formatarMoeda(totalDespesa), Vermelho)
+                    ResumoItem("Sem revista", totalSem.toString(), MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
             Spacer(Modifier.height(8.dp))
             if (linhas.isEmpty()) {
                 Text("Nenhum aluno ativo encontrado. Cadastre membros primeiro.")
-            }
-            LazyColumn {
-                items(linhas) { linha ->
-                    val e = linha.entrega
-                    val (rotulo, cor) = when (e?.tipo) {
-                        "FISICA" -> "Física • ${formatarMoeda(e.preco)}" to Verde
-                        "DIGITAL" -> "Digital (PDF) • grátis" to MaterialTheme.colorScheme.primary
-                        else -> "Sem revista" to MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                    Card(
-                        Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                            .clickable { alunoSelecionado = linha },
-                        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
-                    ) {
-                        ListItem(
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            headlineContent = { Text(linha.aluno.nome, fontWeight = FontWeight.SemiBold) },
-                            supportingContent = { Text(linha.classeNome) },
-                            trailingContent = {
-                                Text(rotulo, color = cor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            }
-                        )
-                        HorizontalDivider(Modifier.padding(horizontal = 16.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
-                    }
-                }
-                item { Spacer(Modifier.height(88.dp)) }
+            } else if (abaSelecionada == 0) {
+                AbaRegistrar(linhas) { alunoSelecionado = it }
+            } else {
+                AbaVisaoGeral(linhas)
             }
         }
     }
@@ -154,6 +142,90 @@ fun RevistasScreen() {
             onExcluir = { vm.deletarPreco(it) },
             onFechar = { mostrarPrecos = false }
         )
+    }
+}
+
+/** Aba 1: lista todos os alunos, toque para registrar/alterar a revista. */
+@Composable
+private fun AbaRegistrar(linhas: List<RevistaAlunoUi>, onClicar: (RevistaAlunoUi) -> Unit) {
+    LazyColumn {
+        items(linhas) { linha ->
+            val e = linha.entrega
+            val (rotulo, cor) = when (e?.tipo) {
+                "FISICA" -> "Física" to Verde
+                "DIGITAL" -> "Digital (PDF)" to MaterialTheme.colorScheme.primary
+                else -> "Sem revista" to MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            Card(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onClicar(linha) },
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+            ) {
+                ListItem(
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    headlineContent = { Text(linha.aluno.nome, fontWeight = FontWeight.SemiBold) },
+                    supportingContent = { Text(linha.classeNome) },
+                    trailingContent = {
+                        Text(rotulo, color = cor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    }
+                )
+                HorizontalDivider(Modifier.padding(horizontal = 16.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            }
+        }
+        item { Spacer(Modifier.height(88.dp)) }
+    }
+}
+
+/** Aba 2: visão rápida agrupada — Física, Digital e Sem revista. */
+@Composable
+private fun AbaVisaoGeral(linhas: List<RevistaAlunoUi>) {
+    val fisicas = linhas.filter { it.entrega?.tipo == "FISICA" }
+    val digitais = linhas.filter { it.entrega?.tipo == "DIGITAL" }
+    val sem = linhas.filter { it.entrega == null }
+
+    // Resolve as cores aqui (contexto @Composable) e passa os valores prontos.
+    val corFisica = Verde
+    val corDigital = MaterialTheme.colorScheme.primary
+    val corSem = MaterialTheme.colorScheme.error
+
+    LazyColumn {
+        grupoVisao("Física", fisicas, corFisica)
+        grupoVisao("Digital (PDF)", digitais, corDigital)
+        grupoVisao("Sem revista", sem, corSem)
+        item { Spacer(Modifier.height(88.dp)) }
+    }
+}
+
+/** Cabeçalho de grupo + alunos. Definido como extensão de LazyListScope. */
+private fun androidx.compose.foundation.lazy.LazyListScope.grupoVisao(
+    titulo: String,
+    itens: List<RevistaAlunoUi>,
+    cor: Color
+) {
+    item(key = "hdr-$titulo") {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(titulo, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = cor)
+            Spacer(Modifier.width(8.dp))
+            Text("(${itens.size})", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+    }
+    if (itens.isEmpty()) {
+        item(key = "vazio-$titulo") {
+            Text("Ninguém neste grupo.", fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 8.dp))
+        }
+    } else {
+        items(itens, key = { "$titulo-${it.aluno.id}" }) { linha ->
+            ListItem(
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                headlineContent = { Text(linha.aluno.nome) },
+                supportingContent = { Text(linha.classeNome, fontSize = 12.sp) }
+            )
+        }
     }
 }
 
@@ -207,19 +279,19 @@ private fun RevistaAlunoDialog(
                     } else {
                         Dropdown("Categoria da revista", categorias, catIdx, { catIdx = it })
                         Text(
-                            "Despesa: ${formatarMoeda(precoSel)}",
-                            color = Vermelho, fontWeight = FontWeight.SemiBold
+                            "Preço de referência: ${formatarMoeda(precoSel)}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            "Lançada em Finanças como: Revista - $categoriaSel - ${linha.aluno.nome}",
+                            "O lançamento em Finanças é manual — nada é descontado automaticamente.",
                             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 } else if (modo == 2) {
-                    Text("Revista digital (PDF) — gratuita. Nenhuma despesa será lançada.",
+                    Text("Revista digital (PDF).",
                         fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
-                    Text("Sem revista. Qualquer despesa anterior deste aluno neste trimestre será removida.",
+                    Text("Sem revista neste trimestre.",
                         fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

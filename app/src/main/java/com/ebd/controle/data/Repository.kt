@@ -143,12 +143,13 @@ class Repository(private val db: AppDatabase) {
 
     /**
      * Define (ou remove) a revista de um aluno num trimestre.
-     *  - tipo == null  -> sem revista: marca a entrega como excluída e remove a despesa
-     *  - tipo "DIGITAL"-> entrega gratuita (sem despesa)
-     *  - tipo "FISICA" -> entrega paga: gera/atualiza um lançamento de SAÍDA
+     *  - tipo == null   -> sem revista: marca a entrega como excluída
+     *  - tipo "DIGITAL" -> entrega digital (PDF)
+     *  - tipo "FISICA"  -> entrega física (o preço cadastrado é só referência)
      *
-     * A despesa é vinculada por um uid determinístico (entregaUid + ":revista"),
-     * exatamente como a oferta da chamada — ao desmarcar, ela é removida (soft-delete).
+     * NÃO gera lançamento financeiro: o controle de despesa é manual.
+     * Por compatibilidade, se existir alguma despesa automática antiga vinculada
+     * a esta entrega (versões anteriores), ela é removida (soft-delete).
      */
     suspend fun definirRevistaAluno(
         alunoId: Long, ano: Int, trim: Int,
@@ -159,16 +160,19 @@ class Repository(private val db: AppDatabase) {
         val entregaUid = "$alunoUid:$ano:$trim:revista"
         val existente = revistaEntregaDao.porUid(entregaUid)
             ?: revistaEntregaDao.buscar(alunoId, ano, trim)
+
+        // Limpa qualquer despesa automática antiga (gerada por versões anteriores).
         val finUid = "$entregaUid:despesa"
-        val finEx = financeiroDao.porUid(finUid)
+        financeiroDao.porUid(finUid)?.let {
+            if (it.deleted != true) financeiroDao.atualizar(it.copy(deleted = true, updatedAt = t))
+        }
 
         if (tipo == null) {
-            // Sem revista: remove entrega e despesa (se existiam)
             existente?.let { revistaEntregaDao.atualizar(it.copy(deleted = true, updatedAt = t)) }
-            finEx?.let { financeiroDao.atualizar(it.copy(deleted = true, updatedAt = t)) }
             return
         }
 
+        // Guarda o preço de referência apenas para revista física (digital = 0).
         val valor = if (tipo == "FISICA") preco else 0.0
         val entrega = RevistaEntrega(
             id = existente?.id ?: 0L, alunoId = alunoId, ano = ano, trimestre = trim,
@@ -176,20 +180,6 @@ class Repository(private val db: AppDatabase) {
             uid = existente?.uid ?: entregaUid, updatedAt = t, deleted = false
         )
         if (existente == null) revistaEntregaDao.inserir(entrega) else revistaEntregaDao.atualizar(entrega)
-
-        // Despesa apenas para revista física com valor > 0
-        if (tipo == "FISICA" && valor > 0) {
-            val desc = "Revista - $categoria - $nomeAluno"
-            val f = Financeiro(
-                id = finEx?.id ?: 0L, data = t, tipo = "SAIDA",
-                categoria = "Revista (${trim}º Trim./$ano)", valor = valor,
-                descricao = desc, chamadaId = null,
-                uid = finEx?.uid ?: finUid, updatedAt = t, deleted = false
-            )
-            if (finEx == null) financeiroDao.inserir(f) else financeiroDao.atualizar(f)
-        } else if (finEx != null) {
-            financeiroDao.atualizar(finEx.copy(deleted = true, updatedAt = t))
-        }
     }
 
     // ---------------- Visitantes ----------------
