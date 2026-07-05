@@ -13,6 +13,8 @@ class Repository(private val db: AppDatabase) {
     private val financeiroDao = db.financeiroDao()
     private val revistaPrecoDao = db.revistaPrecoDao()
     private val revistaEntregaDao = db.revistaEntregaDao()
+    private val criterioDao = db.criterioPontuacaoDao()
+    private val pontoDao = db.pontoLancamentoDao()
     private val visitanteDao = db.visitanteDao()
 
     private fun novoUid() = UUID.randomUUID().toString()
@@ -182,6 +184,58 @@ class Repository(private val db: AppDatabase) {
         if (existente == null) revistaEntregaDao.inserir(entrega) else revistaEntregaDao.atualizar(entrega)
     }
 
+    // ---------------- Pontuação ----------------
+    val criterios = criterioDao.observarTodos()
+    val pontos = pontoDao.observarTodos()
+    suspend fun listarCriterios() = criterioDao.listarTodos()
+    suspend fun contarCriterios() = criterioDao.contar()
+
+    suspend fun salvarCriterio(c: CriterioPontuacao): Long {
+        val t = agora()
+        return if (c.id == 0L) criterioDao.inserir(c.copy(uid = c.uid ?: novoUid(), updatedAt = t, deleted = false))
+        else { criterioDao.atualizar(c.copy(uid = c.uid ?: novoUid(), updatedAt = t)); c.id }
+    }
+    suspend fun deletarCriterio(c: CriterioPontuacao) {
+        criterioDao.atualizar(c.copy(deleted = true, updatedAt = agora()))
+    }
+
+    /** Pontos já lançados de um aluno numa data (para a tela de marcação pré-marcar). */
+    suspend fun pontosDoAlunoNaData(alunoId: Long, data: Long) =
+        pontoDao.listarDoAlunoNaData(alunoId, data)
+
+    /**
+     * Marca (ou desmarca) um critério para um aluno numa data.
+     *  - quantidade <= 0  -> remove o lançamento (soft-delete). Serve de "toggle off".
+     *  - quantidade >= 1  -> cria/atualiza o lançamento; pontos = criterio.pontos
+     *    (× quantidade quando o critério é por quantidade).
+     * uid determinístico "alunoUid:criterioUid:data" garante 1 linha por
+     * aluno+critério+dia e evita duplicar no sync.
+     */
+    suspend fun marcarPonto(alunoId: Long, criterio: CriterioPontuacao, data: Long, quantidade: Int) {
+        val t = agora()
+        val alunoUid = alunoDao.porId(alunoId)?.uid ?: return
+        val criterioUid = criterio.uid ?: return
+        val lancUid = "$alunoUid:$criterioUid:$data"
+        val existente = pontoDao.porUid(lancUid)
+
+        if (quantidade <= 0) {
+            existente?.let { if (it.deleted != true) pontoDao.atualizar(it.copy(deleted = true, updatedAt = t)) }
+            return
+        }
+
+        val qtd = if (criterio.porQuantidade) quantidade else 1
+        val total = criterio.pontos * qtd
+        val linha = PontoLancamento(
+            id = existente?.id ?: 0L, alunoId = alunoId, criterioId = criterio.id,
+            data = data, pontos = total, quantidade = qtd,
+            uid = existente?.uid ?: lancUid, updatedAt = t, deleted = false
+        )
+        if (existente == null) pontoDao.inserir(linha) else pontoDao.atualizar(linha)
+    }
+
+    /** Lançamentos de pontos dentro de um período [ini, fim). */
+    suspend fun pontosDoPeriodo(ini: Long, fim: Long) = pontoDao.listarPorPeriodo(ini, fim)
+
     // ---------------- Visitantes ----------------
     val visitantes = visitanteDao.observarTodos()
     suspend fun listarVisitantes() = visitanteDao.listarTodos()
@@ -206,6 +260,7 @@ class Repository(private val db: AppDatabase) {
     suspend fun limparTudo() {
         presencaDao.deletarTudo(); chamadaDao.deletarTudo(); visitanteDao.deletarTudo()
         revistaEntregaDao.deletarTudo(); revistaPrecoDao.deletarTudo()
+        pontoDao.deletarTudo(); criterioDao.deletarTudo()
         alunoDao.deletarTudo(); classeDao.deletarTudo(); financeiroDao.deletarTudo()
     }
 
@@ -224,11 +279,14 @@ class Repository(private val db: AppDatabase) {
         val fin = financeiroDao.todosIncl()
         val rpr = revistaPrecoDao.todosIncl()
         val ren = revistaEntregaDao.todosIncl()
+        val cri = criterioDao.todosIncl()
+        val pts = pontoDao.todosIncl()
         val vis = visitanteDao.todosIncl()
 
         val uidClasse = cls.associate { it.id to (it.uid ?: "") }
         val uidAluno = alu.associate { it.id to (it.uid ?: "") }
         val uidChamada = cha.associate { it.id to (it.uid ?: "") }
+        val uidCriterio = cri.associate { it.id to (it.uid ?: "") }
 
         val root = JSONObject()
         root.put("classes", JSONArray().apply {
@@ -241,6 +299,7 @@ class Repository(private val db: AppDatabase) {
                 .put("uid", it.uid).put("classeUid", uidClasse[it.classeId] ?: "")
                 .put("nome", it.nome).put("dataNascimento", it.dataNascimento ?: JSONObject.NULL)
                 .put("telefone", it.telefone).put("cargo", it.cargo).put("ativo", b(it.ativo))
+                .put("especial", b(it.especial))
                 .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
         })
         root.put("chamadas", JSONArray().apply {
@@ -282,6 +341,20 @@ class Repository(private val db: AppDatabase) {
                 .put("categoria", it.categoria).put("preco", it.preco)
                 .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
         })
+        root.put("criterios", JSONArray().apply {
+            cri.forEach { put(JSONObject()
+                .put("uid", it.uid).put("nome", it.nome).put("pontos", it.pontos)
+                .put("grupo", it.grupo).put("porQuantidade", b(it.porQuantidade))
+                .put("ordem", it.ordem).put("ativo", b(it.ativo))
+                .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
+        })
+        root.put("pontos", JSONArray().apply {
+            pts.forEach { put(JSONObject()
+                .put("uid", it.uid).put("alunoUid", uidAluno[it.alunoId] ?: "")
+                .put("criterioUid", uidCriterio[it.criterioId] ?: "")
+                .put("data", it.data).put("pontos", it.pontos).put("quantidade", it.quantidade)
+                .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
+        })
         return root
     }
 
@@ -307,6 +380,7 @@ class Repository(private val db: AppDatabase) {
             val local = alunoDao.porUid(uid)
             val dados2 = Aluno(classeId = cId, nome = jStr(o, "nome"), dataNascimento = jLongOrNull(o, "dataNascimento"),
                 telefone = jStr(o, "telefone"), cargo = jStr(o, "cargo"), ativo = jBool(o, "ativo"),
+                especial = jBool(o, "especial"),
                 uid = uid, updatedAt = rUpd, deleted = rDel)
             if (local == null) alunoDao.inserir(dados2)
             else if (rUpd > (local.updatedAt ?: 0L)) alunoDao.atualizar(dados2.copy(id = local.id))
@@ -390,6 +464,33 @@ class Repository(private val db: AppDatabase) {
                 preco = jDouble(o, "preco"), uid = uid, updatedAt = rUpd, deleted = rDel)
             if (local == null) revistaEntregaDao.inserir(dados2)
             else if (rUpd > (local.updatedAt ?: 0L)) revistaEntregaDao.atualizar(dados2.copy(id = local.id))
+        }
+
+        // PONTUAÇÃO - CRITÉRIOS
+        eachObj(dados.optJSONArray("criterios")) { o ->
+            val uid = jStr(o, "uid"); if (uid.isBlank()) return@eachObj
+            val rUpd = jLong(o, "updatedAt"); val rDel = jBool(o, "deleted")
+            val local = criterioDao.porUid(uid)
+            val dados2 = CriterioPontuacao(nome = jStr(o, "nome"), pontos = jInt(o, "pontos"),
+                grupo = jStr(o, "grupo").ifBlank { "REGULAR" }, porQuantidade = jBool(o, "porQuantidade"),
+                ordem = jInt(o, "ordem"), ativo = jBool(o, "ativo"), uid = uid, updatedAt = rUpd, deleted = rDel)
+            if (local == null) criterioDao.inserir(dados2)
+            else if (rUpd > (local.updatedAt ?: 0L)) criterioDao.atualizar(dados2.copy(id = local.id))
+        }
+        val mapaCriterio = criterioDao.todosIncl().associate { (it.uid ?: "") to it.id }
+
+        // PONTUAÇÃO - LANÇAMENTOS
+        eachObj(dados.optJSONArray("pontos")) { o ->
+            val uid = jStr(o, "uid"); if (uid.isBlank()) return@eachObj
+            val aId = mapaAluno[jStr(o, "alunoUid")] ?: return@eachObj
+            val crId = mapaCriterio[jStr(o, "criterioUid")] ?: return@eachObj
+            val rUpd = jLong(o, "updatedAt"); val rDel = jBool(o, "deleted")
+            val local = pontoDao.porUid(uid)
+            val dados2 = PontoLancamento(alunoId = aId, criterioId = crId, data = jLong(o, "data"),
+                pontos = jInt(o, "pontos"), quantidade = jInt(o, "quantidade").coerceAtLeast(1),
+                uid = uid, updatedAt = rUpd, deleted = rDel)
+            if (local == null) pontoDao.inserir(dados2)
+            else if (rUpd > (local.updatedAt ?: 0L)) pontoDao.atualizar(dados2.copy(id = local.id))
         }
     }
 }

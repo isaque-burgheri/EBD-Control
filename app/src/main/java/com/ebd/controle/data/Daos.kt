@@ -170,6 +170,47 @@ interface RevistaEntregaDao {
 }
 
 @Dao
+interface CriterioPontuacaoDao {
+    @Query("SELECT * FROM criterios_pontuacao WHERE IFNULL(deleted,0)=0 ORDER BY ordem, nome")
+    fun observarTodos(): Flow<List<CriterioPontuacao>>
+
+    @Query("SELECT * FROM criterios_pontuacao WHERE IFNULL(deleted,0)=0 ORDER BY ordem, nome")
+    suspend fun listarTodos(): List<CriterioPontuacao>
+
+    @Query("SELECT COUNT(*) FROM criterios_pontuacao WHERE IFNULL(deleted,0)=0")
+    suspend fun contar(): Int
+
+    @Query("SELECT * FROM criterios_pontuacao") suspend fun todosIncl(): List<CriterioPontuacao>
+    @Query("SELECT * FROM criterios_pontuacao WHERE uid = :uid LIMIT 1") suspend fun porUid(uid: String): CriterioPontuacao?
+
+    @Insert suspend fun inserir(c: CriterioPontuacao): Long
+    @Update suspend fun atualizar(c: CriterioPontuacao)
+    @Query("DELETE FROM criterios_pontuacao") suspend fun deletarTudo()
+}
+
+@Dao
+interface PontoLancamentoDao {
+    @Query("SELECT * FROM pontos_lancamentos WHERE IFNULL(deleted,0)=0")
+    fun observarTodos(): Flow<List<PontoLancamento>>
+
+    @Query("SELECT * FROM pontos_lancamentos WHERE IFNULL(deleted,0)=0")
+    suspend fun listarTodos(): List<PontoLancamento>
+
+    @Query("SELECT * FROM pontos_lancamentos WHERE data >= :ini AND data < :fim AND IFNULL(deleted,0)=0")
+    suspend fun listarPorPeriodo(ini: Long, fim: Long): List<PontoLancamento>
+
+    @Query("SELECT * FROM pontos_lancamentos WHERE alunoId = :alunoId AND data = :data AND IFNULL(deleted,0)=0")
+    suspend fun listarDoAlunoNaData(alunoId: Long, data: Long): List<PontoLancamento>
+
+    @Query("SELECT * FROM pontos_lancamentos") suspend fun todosIncl(): List<PontoLancamento>
+    @Query("SELECT * FROM pontos_lancamentos WHERE uid = :uid LIMIT 1") suspend fun porUid(uid: String): PontoLancamento?
+
+    @Insert suspend fun inserir(p: PontoLancamento): Long
+    @Update suspend fun atualizar(p: PontoLancamento)
+    @Query("DELETE FROM pontos_lancamentos") suspend fun deletarTudo()
+}
+
+@Dao
 interface VisitanteDao {
     @Query("SELECT * FROM visitantes WHERE IFNULL(deleted,0)=0 ORDER BY data DESC")
     fun observarTodos(): Flow<List<Visitante>>

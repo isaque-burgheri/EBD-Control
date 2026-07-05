@@ -108,6 +108,7 @@ private fun AlunoDialog(
     var tel by remember { mutableStateOf(inicial?.telefone ?: "") }
     var cargoIdx by remember { mutableStateOf(CARGOS.indexOf(inicial?.cargo ?: "Membro").coerceAtLeast(0)) }
     var ativo by remember { mutableStateOf(inicial?.ativo ?: true) }
+    var especial by remember { mutableStateOf(inicial?.especial ?: false) }
 
     AlertDialog(
         onDismissRequest = onCancelar,
@@ -131,6 +132,20 @@ private fun AlunoDialog(
                     Spacer(Modifier.width(8.dp))
                     Text(if (ativo) "Ativo" else "Inativo")
                 }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = especial,
+                        onCheckedChange = { especial = it },
+                        colors = com.ebd.controle.ui.components.realceSwitchColors()
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("Aluno especial (inclusão)")
+                        Text("Usa metas adaptadas na tela de Pontuação",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
         },
         confirmButton = {
@@ -144,7 +159,8 @@ private fun AlunoDialog(
                             dataNascimento = nasc,
                             telefone = tel.trim(),
                             cargo = CARGOS[cargoIdx],
-                            ativo = ativo
+                            ativo = ativo,
+                            especial = especial
                         )
                     )
                 }
