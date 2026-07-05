@@ -31,6 +31,8 @@ data class Aluno(
     val telefone: String = "",
     val cargo: String = "",
     val ativo: Boolean = true,
+    /** Aluno especial (inclusão): usa o grupo de critérios adaptados na tela de pontos. */
+    val especial: Boolean = false,
     val uid: String? = null,
     val updatedAt: Long? = null,
     val deleted: Boolean? = null
@@ -109,6 +111,58 @@ data class RevistaEntrega(
     val tipo: String = "FISICA",
     val categoria: String = "",
     val preco: Double = 0.0,
+    val uid: String? = null,
+    val updatedAt: Long? = null,
+    val deleted: Boolean? = null
+)
+
+/**
+ * Catálogo de critérios de pontuação (o "quanto vale cada coisa").
+ * É totalmente editável pela tela — como a tabela de preços das revistas.
+ *
+ *  - nome: rótulo curto que aparece no botão ("Presença", "Pontualidade",
+ *    "Visitante", "Alimento café", "Arroz/óleo"...).
+ *  - pontos: valor padrão do critério.
+ *  - grupo: só organiza a tela. Valores usados:
+ *      "REGULAR"  -> alunos regulares (presença, pontualidade, participação...)
+ *      "ESPECIAL" -> metas adaptadas (inclusão)
+ *      "CAFE"     -> alimento p/ o café (pontuação fixa, valoriza a atitude)
+ *      "CESTA"    -> cesta básica / ação social (tabelado por item)
+ *  - porQuantidade: se true, o lançamento multiplica pontos × quantidade
+ *    (ex.: 3 pacotes de arroz). Se false, é toque único (presença etc.).
+ *  - ordem: posição na lista (menor primeiro).
+ *  - ativo: permite "arquivar" um critério sem apagar o histórico.
+ */
+@Entity(tableName = "criterios_pontuacao")
+data class CriterioPontuacao(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val nome: String,
+    val pontos: Int = 0,
+    val grupo: String = "REGULAR",
+    val porQuantidade: Boolean = false,
+    val ordem: Int = 0,
+    val ativo: Boolean = true,
+    val uid: String? = null,
+    val updatedAt: Long? = null,
+    val deleted: Boolean? = null
+)
+
+/**
+ * Um ponto marcado para um aluno numa data, referente a um critério.
+ *  - pontos: valor JÁ calculado no momento da marcação (fica fixo no histórico
+ *    mesmo que o critério mude de valor depois — igual ao preço da revista).
+ *  - quantidade: nº de unidades (1 para critérios de toque único).
+ * uid determinístico "alunoUid:criterioUid:data" -> nunca duplica no sync;
+ * marcar de novo o mesmo critério no mesmo dia atualiza a linha (toggle).
+ */
+@Entity(tableName = "pontos_lancamentos")
+data class PontoLancamento(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val alunoId: Long,
+    val criterioId: Long,
+    val data: Long,
+    val pontos: Int = 0,
+    val quantidade: Int = 1,
     val uid: String? = null,
     val updatedAt: Long? = null,
     val deleted: Boolean? = null

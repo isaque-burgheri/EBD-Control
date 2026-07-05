@@ -23,6 +23,7 @@ suspend fun exportarBackup(repo: Repository): String {
             put("id", a.id); put("classeId", a.classeId); put("nome", a.nome)
             put("dataNascimento", a.dataNascimento ?: JSONObject.NULL)
             put("telefone", a.telefone); put("cargo", a.cargo); put("ativo", a.ativo)
+            put("especial", a.especial)
         })
     }
     root.put("alunos", alunos)
@@ -98,7 +99,7 @@ suspend fun importarBackup(repo: Repository, json: String) {
         val novo = repo.salvarAluno(
             Aluno(classeId = classeNova, nome = o.getString("nome"), dataNascimento = nasc,
                 telefone = o.optString("telefone", ""), cargo = o.optString("cargo", ""),
-                ativo = o.optBoolean("ativo", true))
+                ativo = o.optBoolean("ativo", true), especial = o.optBoolean("especial", false))
         )
         mapaAluno[o.optLong("id", -1)] = novo
     }

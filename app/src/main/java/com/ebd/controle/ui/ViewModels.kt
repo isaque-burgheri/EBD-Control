@@ -395,6 +395,126 @@ class RevistasViewModel(app: Application) : AndroidViewModel(app) {
     fun deletarPreco(r: RevistaPreco) = viewModelScope.launch { repo.deletarPrecoRevista(r) }
 }
 
+/* ----------------------- Pontuação ----------------------- */
+/** Estado de marcação de um aluno na tela de pontos (id do critério -> quantidade marcada). */
+data class AlunoPontosUi(
+    val aluno: Aluno,
+    val marcas: Map<Long, Int>,   // criterioId -> quantidade (0/ausente = não marcado)
+    val total: Int
+)
+/** Linha do ranking: aluno + total de pontos no período + nº de faltas (desempate). */
+data class RankingLinhaUi(
+    val aluno: Aluno,
+    val classeNome: String,
+    val pontos: Int,
+    val faltas: Int
+)
+
+class PontuacaoViewModel(app: Application) : AndroidViewModel(app) {
+    private val repo = app.repo()
+
+    val classes = repo.classes.stateInDefault(viewModelScope, emptyList())
+    val criterios = repo.criterios.stateInDefault(viewModelScope, emptyList())
+
+    /* ---- Marcação rápida (por classe + data) ---- */
+    private val _classeId = MutableStateFlow<Long?>(null)
+    val classeId: StateFlow<Long?> = _classeId.asStateFlow()
+
+    private val _data = MutableStateFlow(hojeMillis())
+    val data: StateFlow<Long> = _data.asStateFlow()
+
+    private val _alunos = MutableStateFlow<List<AlunoPontosUi>>(emptyList())
+    val alunos: StateFlow<List<AlunoPontosUi>> = _alunos.asStateFlow()
+
+    fun setClasse(id: Long?) { _classeId.value = id; recarregarMarcacao() }
+    fun setData(d: Long) { _data.value = d; recarregarMarcacao() }
+
+    /** (Re)carrega os alunos da classe/data e o que já foi marcado naquele dia. */
+    fun recarregarMarcacao() = viewModelScope.launch {
+        val cid = _classeId.value
+        if (cid == null) { _alunos.value = emptyList(); return@launch }
+        val d = _data.value
+        val lista = repo.listarAlunosPorClasse(cid)
+        _alunos.value = lista.map { a ->
+            val lancs = repo.pontosDoAlunoNaData(a.id, d)
+            val marcas = lancs.associate { it.criterioId to it.quantidade }
+            AlunoPontosUi(a, marcas, lancs.sumOf { it.pontos })
+        }
+    }
+
+    /**
+     * Marca/atualiza um critério para um aluno. quantidade<=0 remove (toggle off).
+     * Recarrega só o aluno afetado para manter a tela fluida.
+     */
+    fun marcar(alunoId: Long, criterio: CriterioPontuacao, quantidade: Int) = viewModelScope.launch {
+        repo.marcarPonto(alunoId, criterio, _data.value, quantidade)
+        val lancs = repo.pontosDoAlunoNaData(alunoId, _data.value)
+        val marcas = lancs.associate { it.criterioId to it.quantidade }
+        val total = lancs.sumOf { it.pontos }
+        _alunos.value = _alunos.value.map {
+            if (it.aluno.id == alunoId) it.copy(marcas = marcas, total = total) else it
+        }
+    }
+
+    /** Alterna um critério de toque único (presença, pontualidade...). */
+    fun alternar(alunoId: Long, criterio: CriterioPontuacao, marcadoAgora: Boolean) =
+        marcar(alunoId, criterio, if (marcadoAgora) 1 else 0)
+
+    /* ---- Critérios (catálogo editável) ---- */
+    fun salvarCriterio(c: CriterioPontuacao) = viewModelScope.launch {
+        repo.salvarCriterio(c); recarregarMarcacao()
+    }
+    fun deletarCriterio(c: CriterioPontuacao) = viewModelScope.launch { repo.deletarCriterio(c) }
+
+    /* ---- Ranking / relatório ---- */
+    private val _trimestre = MutableStateFlow(Trimestre.atual())
+    val trimestre: StateFlow<Trimestre> = _trimestre.asStateFlow()
+
+    private val _classeRankingId = MutableStateFlow<Long?>(null)
+    val classeRankingId: StateFlow<Long?> = _classeRankingId.asStateFlow()
+
+    private val _ranking = MutableStateFlow<List<RankingLinhaUi>>(emptyList())
+    val ranking: StateFlow<List<RankingLinhaUi>> = _ranking.asStateFlow()
+
+    fun setTrimestreRanking(t: Trimestre) { _trimestre.value = t; recarregarRanking() }
+    fun setClasseRanking(id: Long?) { _classeRankingId.value = id; recarregarRanking() }
+
+    /** Soma os pontos do período por aluno e conta faltas (para desempate). */
+    fun recarregarRanking() = viewModelScope.launch {
+        val t = _trimestre.value
+        val ini = t.inicioMillis(); val fim = t.fimExclusivoMillis()
+        val filtro = _classeRankingId.value
+        val nomes = repo.listarClasses().associate { it.id to it.nome }
+        val alunos = repo.listarTodosAlunos().filter { it.ativo }
+            .filter { filtro == null || it.classeId == filtro }
+
+        val pontosPorAluno = repo.pontosDoPeriodo(ini, fim)
+            .groupBy { it.alunoId }
+            .mapValues { (_, l) -> l.sumOf { it.pontos } }
+
+        // Faltas = chamadas da classe no período em que o aluno constava ausente.
+        val chamadas = repo.listarTodasChamadas().filter { it.data in ini until fim }
+        val faltasPorAluno = HashMap<Long, Int>()
+        for (ch in chamadas) {
+            val presencas = repo.presencasDaChamada(ch.id)
+            presencas.forEach { p ->
+                if (!p.presente) faltasPorAluno[p.alunoId] = (faltasPorAluno[p.alunoId] ?: 0) + 1
+            }
+        }
+
+        _ranking.value = alunos.map { a ->
+            RankingLinhaUi(
+                aluno = a,
+                classeNome = nomes[a.classeId] ?: "",
+                pontos = pontosPorAluno[a.id] ?: 0,
+                faltas = faltasPorAluno[a.id] ?: 0
+            )
+        }.sortedWith(compareByDescending<RankingLinhaUi> { it.pontos }.thenBy { it.faltas }.thenBy { it.aluno.nome })
+    }
+
+    init { recarregarRanking() }
+}
+
 /* ----------------------- Visitantes ----------------------- */
 class VisitantesViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = app.repo()

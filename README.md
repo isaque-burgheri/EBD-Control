@@ -1,9 +1,9 @@
 # EBD Controle — App Android
 
 Sistema de gestão da Escola Bíblica Dominical: **classes, membros (com aniversários),
-chamada/presença, relatórios com gráficos e finanças**. Funciona **offline** guardando
-os dados no próprio celular, com **backup local** (arquivo `.json`) e **sincronização
-em nuvem** opcional via Google Sheets + Apps Script.
+chamada/presença, pontuação e ranking dos alunos, relatórios com gráficos e finanças**.
+Funciona **offline** guardando os dados no próprio celular, com **backup local**
+(arquivo `.json`) e **sincronização em nuvem** opcional via Google Sheets + Apps Script.
 
 > App próprio. Não usa marca, textos ou código de terceiros.
 
@@ -41,6 +41,21 @@ Chamada/presença, relatórios por trimestre e cadastro de membros:
     <td align="center">
       <img src="docs/screenshots/membros-claro.png" width="250"><br>
       <sub><b>Membros</b></sub>
+    </td>
+  </tr>
+</table>
+
+Pontuação (marcação rápida) e ranking dos alunos por trimestre:
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/pontuacao-claro.png" width="250"><br>
+      <sub><b>Pontuação · marcar pontos</b></sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/ranking-claro.png" width="250"><br>
+      <sub><b>Ranking · pódio do trimestre</b></sub>
     </td>
   </tr>
 </table>
@@ -89,6 +104,10 @@ Tela **Início → Backup e dados**:
 - **Restaurar** lê um `.json` e **substitui** os dados atuais pelos do arquivo
   (pede confirmação antes). Use para recuperar uma cópia ou migrar para outro celular.
 
+> A pontuação (critérios e pontos lançados) trafega pela **sincronização em nuvem**,
+> que é a via completa. O backup local `.json` cobre o núcleo (classes, membros,
+> chamadas, visitantes e finanças).
+
 ### Sincronização em nuvem (Google Sheets)
 Permite que **vários celulares** usem os mesmos dados, compartilhando uma planilha:
 
@@ -107,12 +126,50 @@ Permite que **vários celulares** usem os mesmos dados, compartilhando uma plani
 > aparecem formatadas na planilha (`dd/mm/yyyy`) e nomes de classe/aluno aparecem
 > em colunas de apoio ao lado dos IDs, sem afetar a sincronização.
 
+> **Abas da planilha:** `classes`, `alunos`, `chamadas`, `presencas`, `financeiro`,
+> `revistasPrecos`, `revistasEntregas`, `criterios`, `pontos` e `visitantes`. As abas
+> `criterios` e `pontos` (pontuação) e a coluna `especial` em `alunos` já vêm no
+> `RESETAR_E_CONFIGURAR`. **Atualizando de uma planilha antiga** (sem pontuação),
+> rode `CORRIGIR_DATAS_EXISTENTES` uma vez para criar as abas novas sem apagar dados;
+> não é preciso reimplantar (a URL `/exec` continua a mesma).
+
 > **Em celular novo:** depois de colar a URL, use **Baixar da nuvem (substituir
 > tudo)** para puxar tudo o que já está na planilha.
 
 - O app já vem com as **classes e membros de exemplo** na 1ª execução.
 
-## 6. Aparência (tema claro e escuro)
+## 6. Pontuação e ranking dos alunos
+
+Tela **Início → Pontuação e ranking dos alunos** (também acessível pelo atalho 🏆
+no Dashboard). Feita para marcar pontos **rápido** durante a aula e acompanhar a
+disputa por trimestre.
+
+### Aba "Marcar pontos"
+- Escolha a **classe** e a **data**; cada aluno aparece com botões de toque rápido.
+- Critérios de **toque único** (presença, pontualidade, participação, visitante):
+  um toque marca/desmarca.
+- Critérios **por quantidade** (alimentos por unidade/peso): botão **− / +** para
+  contar unidades; os pontos são multiplicados automaticamente.
+- O **total do aluno no dia** atualiza na hora.
+- Alunos marcados como **especiais (inclusão)** veem automaticamente o grupo de
+  metas adaptadas.
+
+### Aba "Ranking"
+- **Pódio do trimestre** (ouro/prata/bronze), com filtro por classe.
+- **Desempate por menos faltas** (contadas a partir das chamadas registradas).
+
+### Critérios (o que vale ponto)
+- Botão **Critérios** abre o catálogo editável — crie, edite valores e exclua.
+- Organizados em grupos: **Regulares**, **Especiais (inclusão)**,
+  **Alimento p/ o café** (pontuação fixa) e **Cesta básica** (tabelada por item).
+- O app já vem com um conjunto padrão de critérios; tudo é ajustável pela tela e
+  sincroniza pela nuvem (abas `criterios` e `pontos`).
+
+> **Aluno especial:** marque no cadastro em **Membros → editar aluno →
+> "Aluno especial (inclusão)"**. Isso troca o grupo de critérios exibido para ele
+> na marcação.
+
+## 7. Aparência (tema claro e escuro)
 - Toggle em **Configurações → Aparência → Tema Escuro**.
 - **Tema claro — _branco editorial_**: fundo branco quente com um leve degradê
   "papel", cards de borda fina e cantos arredondados, **preto quente (#1A1615)**
@@ -127,14 +184,14 @@ Permite que **vários celulares** usem os mesmos dados, compartilhando uma plani
   *kickers* em **Geist**.
 - Fontes embarcadas no APK (`res/font/`), sob a SIL Open Font License.
 
-## 7. Personalização rápida
+## 8. Personalização rápida
 - Nome do app: `app/src/main/res/values/strings.xml`.
 - Cores e tipografia: `app/src/main/java/com/ebd/controle/ui/theme/Theme.kt`.
 - Componentes visuais (cards, gráfico): `ui/components/Components.kt`.
 - Layout da tela inicial: `ui/screens/DashboardScreen.kt`.
 - Pacote/ID do app: `com.ebd.controle` (em `app/build.gradle.kts`).
 
-## 8. Estrutura do projeto
+## 9. Estrutura do projeto
 ```
 app/src/main/
 ├── java/com/ebd/controle/
@@ -149,13 +206,17 @@ app/src/main/
 │       ├── theme/Theme.kt     # paletas, tipografia, gradientes
 │       ├── components/        # StatCard, BarChart, Dropdown, DateField
 │       ├── nav/Navigation.kt  # barra inferior + roteamento
-│       └── screens/           # 10 telas (Dashboard, Chamada, etc.)
+│       └── screens/           # 11 telas (Dashboard, Chamada, Pontuação, etc.)
 └── res/
     ├── font/                  # Geist + Playfair Display
     └── values/                # strings.xml, themes.xml, colors.xml
 ```
 
-## 9. Se o Gradle Sync falhar por versão
+> **Banco de dados (Room):** versão atual **8**. A migração 7→8 adiciona as tabelas
+> `criterios_pontuacao` e `pontos_lancamentos` e a coluna `especial` em `alunos`,
+> sem apagar dados. Roda sozinha na primeira abertura do app após a atualização.
+
+## 10. Se o Gradle Sync falhar por versão
 - Aceite as sugestões de atualização do Android Studio (AGP Upgrade Assistant).
 - Versões usadas: Gradle 8.9, AGP 8.7.3, Kotlin 2.0.21, Compose BOM 2024.10.01,
   Room 2.6.1, KSP 2.0.21-1.0.25.
@@ -164,7 +225,7 @@ app/src/main/
   mais recente da série 2.x.
 - **`minSdk` é 26** (Android 8.0+), exigido pelas fontes variáveis do tema.
 
-## 10. Créditos
+## 11. Créditos
 - **Geist** — Vercel, sob a SIL Open Font License 1.1.
 - **Playfair Display** — Claus Eggers Sørensen, sob a SIL Open Font License 1.1.
 - Ícones no estilo Material Symbols (Google), sob a Apache License 2.0.
