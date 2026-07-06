@@ -3,86 +3,115 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ranking EBD — Impressão</title>
+<title>Ranking EBD — Mural</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Inter:wght@400;500;600;700;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap');
 
   :root{
-    --tinta:#1a1615; --suave:#6b665e; --linha:#e3ded4; --creme:#fbf9f3;
-    --lima:#c7f27a; --verde:#5a7d34;
+    /* tema escuro (fiel ao pôster) */
+    --fundo:#16294d;
+    --fundo2:#1d3462;
+    --painel:#f4f1e9;
+    --painel-borda:#0e1c38;
+    --faixa:#0e1c38;
+    --tinta:#1a1a1a;
+    --suave:#5c6270;
+    --titulo:#f5efdf;
+    --dourado:#d9b45b;
+    --verde:#3f6d2a;
     --ouro:#d4af37; --prata:#9aa0a6; --bronze:#b08d57;
   }
-  *{ margin:0; padding:0; box-sizing:border-box; }
-  body{ font-family:'Inter',sans-serif; color:var(--tinta); background:#e9e7e1; padding:24px; }
-
-  /* barra de controles (some na impressão) */
-  .toolbar{ max-width:800px; margin:0 auto 18px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; background:#fff; border:1px solid var(--linha); border-radius:14px; padding:14px 16px; }
-  .toolbar input, .toolbar select{ font:inherit; padding:9px 12px; border:1.5px solid var(--linha); border-radius:10px; }
-  .toolbar input.url{ flex:1; min-width:240px; }
-  .toolbar button{ font:inherit; font-weight:600; padding:9px 18px; border:none; border-radius:10px; background:var(--tinta); color:#fff; cursor:pointer; }
-  .toolbar button.print{ background:var(--verde); }
-  .toolbar .hint{ font-size:13px; color:var(--suave); flex-basis:100%; }
-  .status{ max-width:800px; margin:0 auto 18px; font-size:14px; color:var(--suave); text-align:center; }
-
-  /* folha A4 */
-  .folha{
-    width:210mm; min-height:297mm; margin:0 auto; background:#fff; padding:16mm 14mm;
-    box-shadow:0 2px 18px rgba(0,0,0,.12);
+  body.claro{
+    --fundo:#eef1f6; --fundo2:#e4e9f2; --painel:#ffffff; --painel-borda:#c9d2e2;
+    --faixa:#16294d; --titulo:#f5efdf;
   }
-  .cab{ text-align:center; border-bottom:3px solid var(--tinta); padding-bottom:14px; margin-bottom:20px; }
-  .cab h1{ font-family:'Playfair Display',serif; font-size:38px; font-weight:800; letter-spacing:-.5px; }
-  .cab .sub{ font-size:17px; color:var(--suave); margin-top:4px; font-weight:600; }
 
-  /* pódio */
-  .podio{ display:flex; justify-content:center; align-items:flex-end; gap:14px; margin:8px 0 26px; }
-  .lugar{ border:2px solid var(--linha); border-radius:16px; padding:16px 12px 18px; text-align:center; width:180px; background:var(--creme); }
-  .lugar .medalha{ width:56px; height:56px; border-radius:50%; margin:0 auto 8px; display:flex; align-items:center; justify-content:center; }
-  .lugar .nome{ font-weight:700; font-size:19px; line-height:1.15; }
-  .lugar .cls{ font-size:12px; color:var(--suave); margin-top:2px; }
-  .lugar .pts{ font-family:'Playfair Display',serif; font-weight:800; font-size:30px; margin-top:8px; color:var(--verde); }
-  .lugar .pts small{ font-size:14px; color:var(--suave); font-weight:600; }
-  .lugar.p1{ width:200px; padding-top:22px; border-color:var(--ouro); }
-  .lugar.p1 .medalha{ background:rgba(212,175,55,.18); }
-  .lugar.p2 .medalha{ background:rgba(154,160,166,.20); }
-  .lugar.p3 .medalha{ background:rgba(176,141,87,.20); }
-  .rank-chip{ display:inline-block; font-weight:800; font-size:13px; padding:2px 10px; border-radius:20px; color:#fff; margin-bottom:8px; }
-  .p1 .rank-chip{ background:var(--ouro); } .p2 .rank-chip{ background:var(--prata); } .p3 .rank-chip{ background:var(--bronze); }
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body{ font-family:'Inter',sans-serif; background:#cfd4dd; padding:24px; color:var(--tinta); }
 
-  /* tabela */
+  /* ---------- barra de controles (some na impressão) ---------- */
+  .toolbar{ max-width:840px; margin:0 auto 16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    background:#fff; border:1px solid #d6d2c8; border-radius:14px; padding:12px 14px; }
+  .toolbar input,.toolbar select{ font:inherit; padding:8px 12px; border:1.5px solid #d6d2c8; border-radius:10px; }
+  .toolbar input.url{ flex:1; min-width:220px; }
+  .toolbar button{ font:inherit; font-weight:700; padding:8px 18px; border:none; border-radius:10px; background:#16294d; color:#fff; cursor:pointer; }
+  .toolbar button.print{ background:#3f6d2a; }
+  .toolbar button.tema{ background:#6b665e; }
+  .toolbar .hint{ font-size:12.5px; color:#6b665e; flex-basis:100%; }
+  .status{ max-width:840px; margin:0 auto 14px; font-size:14px; color:#444; text-align:center; }
+
+  /* ---------- folha ---------- */
+  .folha{ width:210mm; min-height:297mm; margin:0 auto; background:var(--fundo);
+    background-image:linear-gradient(160deg, var(--fundo) 0%, var(--fundo2) 55%, var(--fundo) 100%);
+    box-shadow:0 2px 18px rgba(0,0,0,.25); padding:9mm 8mm; display:none; }
+
+  /* cabeçalho */
+  .cab{ display:flex; align-items:center; gap:14px; background:rgba(255,255,255,.06);
+    border:2px solid rgba(255,255,255,.35); border-radius:16px; padding:10px 16px; margin-bottom:12px; }
+  body.claro .cab{ background:var(--faixa); border-color:var(--faixa); }
+  .cab img{ height:64px; width:auto; border-radius:10px; }
+  .cab img.ebd{ height:60px; filter:invert(1) brightness(1.6); mix-blend-mode:screen; }
+  body.claro .cab img.ebd{ filter:invert(1) brightness(1.8); }
+  .cab .tit{ flex:1; text-align:center; font-family:'Archivo',sans-serif; font-weight:900;
+    font-size:40px; letter-spacing:.5px; color:var(--titulo);
+    text-shadow:0 2px 4px rgba(0,0,0,.5); }
+
+  /* grid principal */
+  .grid{ display:grid; grid-template-columns:1fr 62mm; gap:10px; align-items:start; }
+
+  /* título de seção (faixa escura) */
+  .secao{ background:var(--faixa); color:var(--titulo); border-radius:12px; padding:9px 14px;
+    font-family:'Archivo',sans-serif; font-weight:800; font-size:20px; letter-spacing:.3px;
+    text-shadow:0 1px 3px rgba(0,0,0,.6); margin-bottom:8px; }
+  .secao small{ font-weight:700; opacity:.85; }
+
+  /* painel claro (tabelas e caixas) */
+  .painel{ background:var(--painel); border-radius:12px; padding:10px 12px; margin-bottom:12px;
+    border:1px solid var(--painel-borda); box-shadow:0 2px 6px rgba(0,0,0,.25); }
+
   table{ width:100%; border-collapse:collapse; }
-  thead th{ background:var(--tinta); color:#fff; font-size:13px; text-transform:uppercase; letter-spacing:1px; padding:9px 12px; text-align:left; }
-  thead th.num, thead th.c{ text-align:center; }
-  tbody td{ padding:9px 12px; border-bottom:1px solid var(--linha); font-size:15px; }
-  tbody td.pos{ text-align:center; font-weight:800; width:44px; color:var(--suave); }
-  tbody td.pts{ text-align:right; font-weight:800; color:var(--verde); width:90px; }
-  tbody td.faltas{ text-align:center; color:var(--suave); width:80px; }
-  tbody tr.top1 td{ background:rgba(212,175,55,.12); }
-  tbody tr.top2 td{ background:rgba(154,160,166,.12); }
-  tbody tr.top3 td{ background:rgba(176,141,87,.12); }
-  tbody tr.zero td{ color:#a6a196; }
-  .medipos{ display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; }
+  thead th{ font-family:'Archivo',sans-serif; font-size:12px; letter-spacing:1.5px; color:#5c5545;
+    text-transform:uppercase; border-bottom:2px solid #b9b2a2; padding:4px 8px; text-align:left; }
+  thead th.c{ text-align:center; } thead th.r{ text-align:right; }
+  tbody td{ padding:5px 8px; border-bottom:1px solid #dfd9cc; font-size:14.5px; }
+  tbody tr:last-child td{ border-bottom:none; }
+  td.rank{ width:52px; text-align:center; font-weight:800; }
+  td.pts{ text-align:right; font-weight:800; width:70px; }
+  td.faltas{ text-align:center; color:var(--suave); width:64px; }
+  td.nome{ font-weight:600; }
+  td.nome small{ font-weight:500; color:var(--suave); }
+  tr.t1 td{ background:rgba(212,175,55,.16); }
+  tr.t2 td{ background:rgba(154,160,166,.16); }
+  tr.t3 td{ background:rgba(176,141,87,.16); }
+  tr.zero td{ color:#9a958a; }
+  tr.zero td.pts{ color:#9a958a; }
+  .medal{ display:inline-flex; width:26px; height:26px; border-radius:50%; align-items:center; justify-content:center; vertical-align:middle; }
+  .m1{ background:rgba(212,175,55,.25); } .m2{ background:rgba(154,160,166,.3); } .m3{ background:rgba(176,141,87,.3); }
+  .nota{ font-size:11.5px; color:var(--suave); padding:6px 4px 2px; font-style:italic; }
 
-  /* legenda */
-  .legenda{ margin-top:22px; border:2px solid var(--linha); border-radius:14px; padding:16px 18px; background:var(--creme); }
-  .legenda h2{ font-family:'Playfair Display',serif; font-size:20px; margin-bottom:8px; }
-  .legenda p{ font-size:13.5px; line-height:1.55; color:#4a453d; }
-  .legenda .obs{ margin-top:12px; padding:10px 12px; background:#fff; border-left:4px solid var(--lima); border-radius:6px; }
-  .tab-pontos{ margin-top:12px; }
-  .tab-pontos thead th{ background:var(--verde); color:#fff; font-size:12px; padding:7px 12px; }
-  .tab-pontos thead th.p{ text-align:right; width:90px; }
-  .tab-pontos tbody td{ font-size:13.5px; padding:6px 12px; }
-  .tab-pontos tbody td.p{ text-align:right; font-weight:800; color:var(--verde); }
-  .tab-pontos tbody tr:nth-child(even) td{ background:rgba(0,0,0,.02); }
-  .rodape{ text-align:center; font-size:11.5px; color:var(--suave); margin-top:14px; }
+  /* sidebar de regras */
+  .lado .painel{ padding:10px 12px; }
+  .lado h3{ font-family:'Archivo',sans-serif; font-size:14px; letter-spacing:1px; text-transform:uppercase;
+    background:var(--faixa); color:var(--titulo); border-radius:8px; padding:7px 10px; margin:-2px -3px 8px; text-align:center;
+    text-shadow:0 1px 2px rgba(0,0,0,.5); }
+  .lado p{ font-size:12.5px; line-height:1.5; color:#3c3a34; }
+  .lado ol{ margin:4px 0 0 18px; font-size:12.5px; line-height:1.55; color:#3c3a34; }
+  .lado ol b{ text-transform:uppercase; font-size:12px; }
+  .tp{ width:100%; border-collapse:collapse; margin-top:2px; }
+  .tp th{ font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#5c5545; border-bottom:2px solid #b9b2a2; padding:3px 4px; text-align:left; }
+  .tp th.r{ text-align:right; }
+  .tp td{ font-size:12.5px; padding:4.5px 4px; border-bottom:1px solid #dfd9cc; }
+  .tp td.r{ text-align:right; font-weight:800; color:var(--verde); width:44px; }
+  .tp tr:last-child td{ border-bottom:none; }
+
+  .rodape{ text-align:center; font-size:11px; color:rgba(255,255,255,.75); margin-top:4px; }
+  body.claro .rodape{ color:#5c6270; }
 
   @media print{
     body{ background:#fff; padding:0; }
-    .toolbar, .status{ display:none !important; }
-    .folha{ box-shadow:none; margin:0; width:auto; min-height:auto; padding:12mm; }
-    @page{ size:A4; margin:8mm; }
-    /* a legenda sempre começa numa folha separada e não se parte no meio */
-    .legenda{ break-before:page; page-break-before:always; break-inside:avoid; }
-    .rodape{ break-inside:avoid; }
+    .toolbar,.status{ display:none !important; }
+    .folha{ box-shadow:none; margin:0; width:auto; min-height:auto; }
+    @page{ size:A4; margin:0; }
   }
 </style>
 </head>
@@ -90,50 +119,81 @@
   <div class="toolbar">
     <input class="url" id="url" placeholder="Cole aqui a URL /exec do seu Apps Script">
     <select id="tri">
-      <option value="1">1º Trimestre</option>
-      <option value="2">2º Trimestre</option>
-      <option value="3">3º Trimestre</option>
-      <option value="4">4º Trimestre</option>
+      <option value="1">1º Trimestre</option><option value="2">2º Trimestre</option>
+      <option value="3">3º Trimestre</option><option value="4">4º Trimestre</option>
     </select>
-    <input id="ano" type="number" style="width:100px" placeholder="Ano">
+    <input id="ano" type="number" style="width:92px" placeholder="Ano">
+    <select id="topn">
+      <option value="10">Top 10</option><option value="15">Top 15</option>
+      <option value="20">Top 20</option><option value="0">Todos</option>
+    </select>
     <button id="carregar">Carregar</button>
+    <button class="tema" id="tema">Tema claro</button>
     <button class="print" onclick="window.print()">Imprimir / PDF</button>
-    <span class="hint">A URL fica salva neste navegador. Depois de sincronizar o app, clique em Carregar para atualizar.</span>
+    <span class="hint">Salve <b>logo-igreja.png</b> e <b>logo-ebd.png</b> na mesma pasta deste arquivo. Ao imprimir, ative "Gráficos de fundo" e desative "Cabeçalhos e rodapés". A URL fica salva neste navegador.</span>
   </div>
   <div class="status" id="status">Cole a URL e clique em Carregar.</div>
 
-  <div class="folha" id="folha" style="display:none">
+  <div class="folha" id="folha">
     <div class="cab">
-      <h1>Ranking da EBD</h1>
-      <div class="sub" id="sub">—</div>
+      <img src="logo-igreja.png" alt="" onerror="this.style.display='none'">
+      <div class="tit">EBD City Conceição</div>
+      <img class="ebd" src="logo-ebd.png" alt="" onerror="this.style.display='none'">
     </div>
-    <div class="podio" id="podio"></div>
-    <table>
-      <thead>
-        <tr><th class="num">#</th><th>Aluno</th><th>Classe</th><th class="c">Faltas</th><th style="text-align:right">Pontos</th></tr>
-      </thead>
-      <tbody id="corpo"></tbody>
-    </table>
 
-    <div class="legenda">
-      <h2>Como funciona a pontuação</h2>
-      <p>Todo domingo cada participante soma pontos por atitudes na Escola Bíblica Dominical. O ranking mostra o total do trimestre — <b>todos concorrem em igualdade</b>, e dá pra subir de posição a cada semana!</p>
-      <table class="tab-pontos">
-        <thead><tr><th>Como pontuar</th><th class="p">Pontos</th></tr></thead>
-        <tbody>
-          <tr><td>Presença</td><td class="p">5</td></tr>
-          <tr><td>Pontualidade (chegar até 09h10)</td><td class="p">10</td></tr>
-          <tr><td>Trouxe Bíblia</td><td class="p">5</td></tr>
-          <tr><td>Trouxe Revista</td><td class="p">5</td></tr>
-          <tr><td>Trouxe visitante</td><td class="p">15</td></tr>
-          <tr><td>Alimento p/ o café</td><td class="p">15</td></tr>
-          <tr><td>Alimentos perecíveis</td><td class="p">10</td></tr>
-          <tr><td>Resumo da aula (falar no final)</td><td class="p">10</td></tr>
-          <tr><td>Substituir professor</td><td class="p">15</td></tr>
-        </tbody>
-      </table>
-      <p class="obs"><b>Observação:</b> a pontuação vale igualmente para alunos e professores. Se um aluno não fizer o resumo final da aula, esses pontos vão para o professor. O mesmo critério de substituição também é pontuado.</p>
-      <p style="margin-top:8px"><b>Empate?</b> Vence quem tiver menos faltas no trimestre. Que comece a disputa! 🏆</p>
+    <div class="grid">
+      <div class="principal">
+        <div class="secao" id="tit-alunos">Top 10 Alunos — 3º Trimestre de 2026</div>
+        <div class="painel">
+          <table>
+            <thead><tr><th class="c">Rank</th><th>Nome</th><th class="r">Pontos</th><th class="c">Faltas</th></tr></thead>
+            <tbody id="corpo-alunos"></tbody>
+          </table>
+          <div class="nota">*Todos os alunos concorrem em igualdade, sem distinção de categoria.</div>
+        </div>
+
+        <div class="secao" id="tit-prof">Top 10 Professores — 3º Trimestre de 2026</div>
+        <div class="painel">
+          <table>
+            <thead><tr><th class="c">Rank</th><th>Nome</th><th class="r">Pontos</th><th class="c">Faltas</th></tr></thead>
+            <tbody id="corpo-prof"></tbody>
+          </table>
+          <div class="nota">*A mesma tabela de pontos vale para os professores.</div>
+        </div>
+      </div>
+
+      <div class="lado">
+        <div class="painel">
+          <h3>Como o ranking é calculado</h3>
+          <p><b>Cálculo trimestral.</b> A pontuação é acumulada ao longo do trimestre (ex.: Jul–Set). Toda semana o mural é atualizado — dá pra subir de posição a cada domingo!</p>
+        </div>
+        <div class="painel">
+          <h3>Critérios de classificação</h3>
+          <ol>
+            <li><b>Mais pontos</b> (primeiro critério)</li>
+            <li><b>Menos faltas</b> (desempate)</li>
+            <li><b>Persistência de empate:</b> sorteio ou competição entre os empatados</li>
+          </ol>
+        </div>
+        <div class="painel">
+          <h3>Como pontuar</h3>
+          <table class="tp">
+            <thead><tr><th>Ação</th><th class="r">Pontos</th></tr></thead>
+            <tbody>
+              <tr><td>Presença</td><td class="r">5</td></tr>
+              <tr><td>Pontualidade (chegar até 09h10)</td><td class="r">10</td></tr>
+              <tr><td>Trouxe Bíblia</td><td class="r">5</td></tr>
+              <tr><td>Trouxe Revista</td><td class="r">5</td></tr>
+              <tr><td>Trouxe visitante</td><td class="r">15</td></tr>
+              <tr><td>Alimento p/ o café</td><td class="r">15</td></tr>
+              <tr><td>Alimentos perecíveis</td><td class="r">10</td></tr>
+              <tr><td>Resumo da aula (falar no final)</td><td class="r">10</td></tr>
+              <tr><td>Substituir professor</td><td class="r">15</td></tr>
+            </tbody>
+          </table>
+          <p style="margin-top:8px; font-size:11.5px;"><b>Obs.:</b> se um aluno não fizer o resumo final da aula, esses pontos vão para o professor.</p>
+        </div>
+      </div>
     </div>
     <div class="rodape" id="rodape"></div>
   </div>
@@ -142,65 +202,72 @@
   const $ = id => document.getElementById(id);
   const nomesTri = {1:'1º',2:'2º',3:'3º',4:'4º'};
 
-  // restaura URL salva e define ano/trimestre atuais
+  // Classe que identifica os professores nas suas tabelas:
+  const CLASSE_PROFESSORES = /PROFESSOR/i;
+
   $('url').value = localStorage.getItem('ebd_ranking_url') || '';
   const hoje = new Date();
   $('ano').value = hoje.getFullYear();
   $('tri').value = Math.floor(hoje.getMonth()/3)+1;
 
+  $('tema').addEventListener('click', () => {
+    document.body.classList.toggle('claro');
+    $('tema').textContent = document.body.classList.contains('claro') ? 'Tema escuro' : 'Tema claro';
+  });
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
   function taca(cor){
-    return `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="${cor}" stroke-width="2">
-      <path d="M8 21h8M12 17v4M7 4h10v6a5 5 0 01-10 0V4zM7 6H4v1a3 3 0 003 3M17 6h3v1a3 3 0 01-3 3"/></svg>`;
+    return `<span class="medal ${cor==='#d4af37'?'m1':cor==='#9aa0a6'?'m2':'m3'}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${cor}" stroke-width="2.4">
+        <path d="M8 21h8M12 17v4M7 4h10v6a5 5 0 01-10 0V4zM7 6H4v1a3 3 0 003 3M17 6h3v1a3 3 0 01-3 3"/></svg></span>`;
   }
   const cores = {1:'#d4af37',2:'#9aa0a6',3:'#b08d57'};
 
-  function render(data){
-    $('sub').textContent = `${nomesTri[data.trimestre]} Trimestre de ${data.ano}  •  ${data.total} alunos`;
-    const linhas = data.linhas;
-
-    // pódio (top 3) — só se houver pelo menos 1 com pontos > 0
-    const podio = $('podio'); podio.innerHTML='';
-    const top = linhas.slice(0,3);
-    const ordemVisual = [top[1], top[0], top[2]]; // 2º, 1º, 3º (1º no meio e maior)
-    const classe = {0:'p2',1:'p1',2:'p3'};
-    if (top.length && top[0].pontos > 0){
-      ordemVisual.forEach((l, i) => {
-        if(!l) return;
-        const pos = l.pos;
-        const div = document.createElement('div');
-        div.className = 'lugar ' + classe[i];
-        div.innerHTML = `<div class="rank-chip">${pos}º</div>
-          <div class="medalha">${taca(cores[pos]||'#b08d57')}</div>
-          <div class="nome">${esc(l.nome)}</div>
-          <div class="cls">${esc(l.classe)}</div>
-          <div class="pts">${l.pontos}<small> pts</small></div>`;
-        podio.appendChild(div);
-      });
-      podio.style.display='flex';
-    } else {
-      podio.style.display='none';
+  function preencher(tbodyId, lista, topN){
+    const corpo = $(tbodyId); corpo.innerHTML='';
+    const mostrar = topN>0 ? lista.slice(0, topN) : lista;
+    if(!mostrar.length){
+      corpo.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#9a958a;padding:12px">Sem lançamentos neste trimestre.</td></tr>';
+      return;
     }
-
-    // tabela completa
-    const corpo = $('corpo'); corpo.innerHTML='';
-    linhas.forEach(l => {
+    mostrar.forEach(l => {
       const tr = document.createElement('tr');
-      if(l.pos<=3 && l.pontos>0) tr.className='top'+l.pos;
+      if(l.pos<=3 && l.pontos>0) tr.className='t'+l.pos;
       else if(l.pontos===0) tr.className='zero';
-      tr.innerHTML = `<td class="pos">${l.pos}</td>
-        <td>${esc(l.nome)}</td>
-        <td>${esc(l.classe)}</td>
-        <td class="faltas">${l.faltas}</td>
-        <td class="pts">${l.pontos}</td>`;
+      const medalha = (l.pos<=3 && l.pontos>0) ? taca(cores[l.pos]) : '';
+      tr.innerHTML = `<td class="rank">${l.pos}º</td>
+        <td class="nome">${medalha} ${esc(l.nome)} <small>· ${esc(l.classe)}</small></td>
+        <td class="pts">${l.pontos}</td>
+        <td class="faltas">${l.faltas}</td>`;
       corpo.appendChild(tr);
     });
-
-    const d = new Date(data.geradoEm);
-    $('rodape').textContent = 'Gerado em ' + d.toLocaleDateString('pt-BR') + ' às ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) + ' • EBD Control';
-    $('folha').style.display='block';
   }
 
-  function esc(s){ return String(s==null?'':s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  function render(data){
+    const topN = Number($('topn').value);
+    const rot = `${nomesTri[data.trimestre]} Trimestre de ${data.ano}`;
+    const pref = topN>0 ? `Top ${topN} ` : '';
+
+    // separa professores (classe PROFESSORES) de alunos e reatribui posições por grupo
+    const prof = [], alunos = [];
+    data.linhas.forEach(l => (CLASSE_PROFESSORES.test(l.classe) ? prof : alunos).push(l));
+    alunos.forEach((l,i)=>l.pos=i+1);
+    prof.forEach((l,i)=>l.pos=i+1);
+
+    $('tit-alunos').textContent = `${pref}Alunos — ${rot}`;
+    $('tit-prof').textContent = `${pref}Professores — ${rot}`;
+    preencher('corpo-alunos', alunos, topN);
+    preencher('corpo-prof', prof, topN);
+
+    // esconde nome da classe na tabela de professores (é sempre PROFESSORES)
+    document.querySelectorAll('#corpo-prof .nome small').forEach(s=>s.remove());
+
+    const d = new Date(data.geradoEm);
+    $('rodape').textContent = '🔄 Atualizado em ' + d.toLocaleDateString('pt-BR') +
+      ' às ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) + ' • EBD Control';
+    $('folha').style.display='block';
+  }
 
   async function carregar(){
     const url = $('url').value.trim();
@@ -212,14 +279,15 @@
     try{
       const r = await fetch(full);
       const data = await r.json();
-      if(!data || !data.linhas) throw new Error('Resposta inesperada. Confirme que o Apps Script foi atualizado com a função de ranking.');
+      if(!data || !data.linhas) throw new Error('Resposta inesperada — confirme a "Nova versão" da implantação.');
       render(data);
       $('status').textContent='';
     }catch(err){
-      $('status').textContent='Erro: '+err.message+' (a URL precisa ter acesso "Qualquer pessoa" e o Codigo.gs precisa da função getRanking).';
+      $('status').textContent='Erro: '+err.message;
     }
   }
   $('carregar').addEventListener('click', carregar);
+  $('topn').addEventListener('change', ()=>{ if($('url').value) carregar(); });
   if($('url').value) carregar();
 </script>
 </body>
