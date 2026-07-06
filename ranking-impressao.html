@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ranking EBD — Impressão</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Inter:wght@400;500;600;700;800&display=swap');
+
+  :root{
+    --tinta:#1a1615; --suave:#6b665e; --linha:#e3ded4; --creme:#fbf9f3;
+    --lima:#c7f27a; --verde:#5a7d34;
+    --ouro:#d4af37; --prata:#9aa0a6; --bronze:#b08d57;
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ font-family:'Inter',sans-serif; color:var(--tinta); background:#e9e7e1; padding:24px; }
+
+  /* barra de controles (some na impressão) */
+  .toolbar{ max-width:800px; margin:0 auto 18px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; background:#fff; border:1px solid var(--linha); border-radius:14px; padding:14px 16px; }
+  .toolbar input, .toolbar select{ font:inherit; padding:9px 12px; border:1.5px solid var(--linha); border-radius:10px; }
+  .toolbar input.url{ flex:1; min-width:240px; }
+  .toolbar button{ font:inherit; font-weight:600; padding:9px 18px; border:none; border-radius:10px; background:var(--tinta); color:#fff; cursor:pointer; }
+  .toolbar button.print{ background:var(--verde); }
+  .toolbar .hint{ font-size:13px; color:var(--suave); flex-basis:100%; }
+  .status{ max-width:800px; margin:0 auto 18px; font-size:14px; color:var(--suave); text-align:center; }
+
+  /* folha A4 */
+  .folha{
+    width:210mm; min-height:297mm; margin:0 auto; background:#fff; padding:16mm 14mm;
+    box-shadow:0 2px 18px rgba(0,0,0,.12);
+  }
+  .cab{ text-align:center; border-bottom:3px solid var(--tinta); padding-bottom:14px; margin-bottom:20px; }
+  .cab h1{ font-family:'Playfair Display',serif; font-size:38px; font-weight:800; letter-spacing:-.5px; }
+  .cab .sub{ font-size:17px; color:var(--suave); margin-top:4px; font-weight:600; }
+
+  /* pódio */
+  .podio{ display:flex; justify-content:center; align-items:flex-end; gap:14px; margin:8px 0 26px; }
+  .lugar{ border:2px solid var(--linha); border-radius:16px; padding:16px 12px 18px; text-align:center; width:180px; background:var(--creme); }
+  .lugar .medalha{ width:56px; height:56px; border-radius:50%; margin:0 auto 8px; display:flex; align-items:center; justify-content:center; }
+  .lugar .nome{ font-weight:700; font-size:19px; line-height:1.15; }
+  .lugar .cls{ font-size:12px; color:var(--suave); margin-top:2px; }
+  .lugar .pts{ font-family:'Playfair Display',serif; font-weight:800; font-size:30px; margin-top:8px; color:var(--verde); }
+  .lugar .pts small{ font-size:14px; color:var(--suave); font-weight:600; }
+  .lugar.p1{ width:200px; padding-top:22px; border-color:var(--ouro); }
+  .lugar.p1 .medalha{ background:rgba(212,175,55,.18); }
+  .lugar.p2 .medalha{ background:rgba(154,160,166,.20); }
+  .lugar.p3 .medalha{ background:rgba(176,141,87,.20); }
+  .rank-chip{ display:inline-block; font-weight:800; font-size:13px; padding:2px 10px; border-radius:20px; color:#fff; margin-bottom:8px; }
+  .p1 .rank-chip{ background:var(--ouro); } .p2 .rank-chip{ background:var(--prata); } .p3 .rank-chip{ background:var(--bronze); }
+
+  /* tabela */
+  table{ width:100%; border-collapse:collapse; }
+  thead th{ background:var(--tinta); color:#fff; font-size:13px; text-transform:uppercase; letter-spacing:1px; padding:9px 12px; text-align:left; }
+  thead th.num, thead th.c{ text-align:center; }
+  tbody td{ padding:9px 12px; border-bottom:1px solid var(--linha); font-size:15px; }
+  tbody td.pos{ text-align:center; font-weight:800; width:44px; color:var(--suave); }
+  tbody td.pts{ text-align:right; font-weight:800; color:var(--verde); width:90px; }
+  tbody td.faltas{ text-align:center; color:var(--suave); width:80px; }
+  tbody tr.top1 td{ background:rgba(212,175,55,.12); }
+  tbody tr.top2 td{ background:rgba(154,160,166,.12); }
+  tbody tr.top3 td{ background:rgba(176,141,87,.12); }
+  tbody tr.zero td{ color:#a6a196; }
+  .medipos{ display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; }
+
+  /* legenda */
+  .legenda{ margin-top:22px; border:2px solid var(--linha); border-radius:14px; padding:16px 18px; background:var(--creme); }
+  .legenda h2{ font-family:'Playfair Display',serif; font-size:20px; margin-bottom:8px; }
+  .legenda p{ font-size:13.5px; line-height:1.55; color:#4a453d; }
+  .legenda .obs{ margin-top:12px; padding:10px 12px; background:#fff; border-left:4px solid var(--lima); border-radius:6px; }
+  .tab-pontos{ margin-top:12px; }
+  .tab-pontos thead th{ background:var(--verde); color:#fff; font-size:12px; padding:7px 12px; }
+  .tab-pontos thead th.p{ text-align:right; width:90px; }
+  .tab-pontos tbody td{ font-size:13.5px; padding:6px 12px; }
+  .tab-pontos tbody td.p{ text-align:right; font-weight:800; color:var(--verde); }
+  .tab-pontos tbody tr:nth-child(even) td{ background:rgba(0,0,0,.02); }
+  .rodape{ text-align:center; font-size:11.5px; color:var(--suave); margin-top:14px; }
+
+  @media print{
+    body{ background:#fff; padding:0; }
+    .toolbar, .status{ display:none !important; }
+    .folha{ box-shadow:none; margin:0; width:auto; min-height:auto; padding:12mm; }
+    @page{ size:A4; margin:8mm; }
+    /* a legenda sempre começa numa folha separada e não se parte no meio */
+    .legenda{ break-before:page; page-break-before:always; break-inside:avoid; }
+    .rodape{ break-inside:avoid; }
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <input class="url" id="url" placeholder="Cole aqui a URL /exec do seu Apps Script">
+    <select id="tri">
+      <option value="1">1º Trimestre</option>
+      <option value="2">2º Trimestre</option>
+      <option value="3">3º Trimestre</option>
+      <option value="4">4º Trimestre</option>
+    </select>
+    <input id="ano" type="number" style="width:100px" placeholder="Ano">
+    <button id="carregar">Carregar</button>
+    <button class="print" onclick="window.print()">Imprimir / PDF</button>
+    <span class="hint">A URL fica salva neste navegador. Depois de sincronizar o app, clique em Carregar para atualizar.</span>
+  </div>
+  <div class="status" id="status">Cole a URL e clique em Carregar.</div>
+
+  <div class="folha" id="folha" style="display:none">
+    <div class="cab">
+      <h1>Ranking da EBD</h1>
+      <div class="sub" id="sub">—</div>
+    </div>
+    <div class="podio" id="podio"></div>
+    <table>
+      <thead>
+        <tr><th class="num">#</th><th>Aluno</th><th>Classe</th><th class="c">Faltas</th><th style="text-align:right">Pontos</th></tr>
+      </thead>
+      <tbody id="corpo"></tbody>
+    </table>
+
+    <div class="legenda">
+      <h2>Como funciona a pontuação</h2>
+      <p>Todo domingo cada participante soma pontos por atitudes na Escola Bíblica Dominical. O ranking mostra o total do trimestre — <b>todos concorrem em igualdade</b>, e dá pra subir de posição a cada semana!</p>
+      <table class="tab-pontos">
+        <thead><tr><th>Como pontuar</th><th class="p">Pontos</th></tr></thead>
+        <tbody>
+          <tr><td>Presença</td><td class="p">5</td></tr>
+          <tr><td>Pontualidade (chegar até 09h10)</td><td class="p">10</td></tr>
+          <tr><td>Trouxe Bíblia</td><td class="p">5</td></tr>
+          <tr><td>Trouxe Revista</td><td class="p">5</td></tr>
+          <tr><td>Trouxe visitante</td><td class="p">15</td></tr>
+          <tr><td>Alimento p/ o café</td><td class="p">15</td></tr>
+          <tr><td>Alimentos perecíveis</td><td class="p">10</td></tr>
+          <tr><td>Resumo da aula (falar no final)</td><td class="p">10</td></tr>
+          <tr><td>Substituir professor</td><td class="p">15</td></tr>
+        </tbody>
+      </table>
+      <p class="obs"><b>Observação:</b> a pontuação vale igualmente para alunos e professores. Se um aluno não fizer o resumo final da aula, esses pontos vão para o professor. O mesmo critério de substituição também é pontuado.</p>
+      <p style="margin-top:8px"><b>Empate?</b> Vence quem tiver menos faltas no trimestre. Que comece a disputa! 🏆</p>
+    </div>
+    <div class="rodape" id="rodape"></div>
+  </div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const nomesTri = {1:'1º',2:'2º',3:'3º',4:'4º'};
+
+  // restaura URL salva e define ano/trimestre atuais
+  $('url').value = localStorage.getItem('ebd_ranking_url') || '';
+  const hoje = new Date();
+  $('ano').value = hoje.getFullYear();
+  $('tri').value = Math.floor(hoje.getMonth()/3)+1;
+
+  function taca(cor){
+    return `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="${cor}" stroke-width="2">
+      <path d="M8 21h8M12 17v4M7 4h10v6a5 5 0 01-10 0V4zM7 6H4v1a3 3 0 003 3M17 6h3v1a3 3 0 01-3 3"/></svg>`;
+  }
+  const cores = {1:'#d4af37',2:'#9aa0a6',3:'#b08d57'};
+
+  function render(data){
+    $('sub').textContent = `${nomesTri[data.trimestre]} Trimestre de ${data.ano}  •  ${data.total} alunos`;
+    const linhas = data.linhas;
+
+    // pódio (top 3) — só se houver pelo menos 1 com pontos > 0
+    const podio = $('podio'); podio.innerHTML='';
+    const top = linhas.slice(0,3);
+    const ordemVisual = [top[1], top[0], top[2]]; // 2º, 1º, 3º (1º no meio e maior)
+    const classe = {0:'p2',1:'p1',2:'p3'};
+    if (top.length && top[0].pontos > 0){
+      ordemVisual.forEach((l, i) => {
+        if(!l) return;
+        const pos = l.pos;
+        const div = document.createElement('div');
+        div.className = 'lugar ' + classe[i];
+        div.innerHTML = `<div class="rank-chip">${pos}º</div>
+          <div class="medalha">${taca(cores[pos]||'#b08d57')}</div>
+          <div class="nome">${esc(l.nome)}</div>
+          <div class="cls">${esc(l.classe)}</div>
+          <div class="pts">${l.pontos}<small> pts</small></div>`;
+        podio.appendChild(div);
+      });
+      podio.style.display='flex';
+    } else {
+      podio.style.display='none';
+    }
+
+    // tabela completa
+    const corpo = $('corpo'); corpo.innerHTML='';
+    linhas.forEach(l => {
+      const tr = document.createElement('tr');
+      if(l.pos<=3 && l.pontos>0) tr.className='top'+l.pos;
+      else if(l.pontos===0) tr.className='zero';
+      tr.innerHTML = `<td class="pos">${l.pos}</td>
+        <td>${esc(l.nome)}</td>
+        <td>${esc(l.classe)}</td>
+        <td class="faltas">${l.faltas}</td>
+        <td class="pts">${l.pontos}</td>`;
+      corpo.appendChild(tr);
+    });
+
+    const d = new Date(data.geradoEm);
+    $('rodape').textContent = 'Gerado em ' + d.toLocaleDateString('pt-BR') + ' às ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) + ' • EBD Control';
+    $('folha').style.display='block';
+  }
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+  async function carregar(){
+    const url = $('url').value.trim();
+    if(!url){ $('status').textContent='Cole a URL /exec primeiro.'; return; }
+    localStorage.setItem('ebd_ranking_url', url);
+    $('status').textContent='Carregando…';
+    const sep = url.includes('?') ? '&' : '?';
+    const full = `${url}${sep}ranking=1&ano=${$('ano').value}&trimestre=${$('tri').value}`;
+    try{
+      const r = await fetch(full);
+      const data = await r.json();
+      if(!data || !data.linhas) throw new Error('Resposta inesperada. Confirme que o Apps Script foi atualizado com a função de ranking.');
+      render(data);
+      $('status').textContent='';
+    }catch(err){
+      $('status').textContent='Erro: '+err.message+' (a URL precisa ter acesso "Qualquer pessoa" e o Codigo.gs precisa da função getRanking).';
+    }
+  }
+  $('carregar').addEventListener('click', carregar);
+  if($('url').value) carregar();
+</script>
+</body>
+</html>
