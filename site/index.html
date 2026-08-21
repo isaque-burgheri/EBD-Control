@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ranking EBD — Mural</title>
+<!--
+  Versão pública do mural. Diferente de ranking-impressao.html, esta página NÃO fala
+  com o Apps Script: ela lê os arquivos ranking-{ano}-{trimestre}.json publicados ao
+  lado dela pelo workflow .github/workflows/publicar-ranking.yml.
+
+  É de propósito. A URL /exec responde `doGet` sem parâmetro com a planilha inteira —
+  telefones e datas de nascimento inclusive. Colocá-la numa página pública entregaria
+  tudo isso a quem abrisse o código-fonte. Aqui só chega o recorte do ranking.
+-->
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap');
+
+  :root{
+    --fundo:#16294d;
+    --fundo2:#1d3462;
+    --painel:#f4f1e9;
+    --painel-borda:#0e1c38;
+    --faixa:#0e1c38;
+    --tinta:#1a1a1a;
+    --suave:#5c6270;
+    --titulo:#f5efdf;
+    --dourado:#d9b45b;
+    --verde:#3f6d2a;
+    --ouro:#d4af37; --prata:#9aa0a6; --bronze:#b08d57;
+  }
+  body.claro{
+    --fundo:#eef1f6; --fundo2:#e4e9f2; --painel:#ffffff; --painel-borda:#c9d2e2;
+    --faixa:#16294d; --titulo:#f5efdf;
+  }
+
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body{ font-family:'Inter',sans-serif; background:#cfd4dd; padding:24px; color:var(--tinta); }
+
+  .toolbar{ max-width:840px; margin:0 auto 16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    background:#fff; border:1px solid #d6d2c8; border-radius:14px; padding:12px 14px; }
+  .toolbar select{ font:inherit; padding:8px 12px; border:1.5px solid #d6d2c8; border-radius:10px; }
+  .toolbar button{ font:inherit; font-weight:700; padding:8px 18px; border:none; border-radius:10px; background:#16294d; color:#fff; cursor:pointer; }
+  .toolbar button.print{ background:#3f6d2a; }
+  .toolbar button.tema{ background:#6b665e; }
+  .toolbar .hint{ font-size:12.5px; color:#6b665e; flex-basis:100%; }
+  .status{ max-width:840px; margin:0 auto 14px; font-size:14px; color:#444; text-align:center; }
+
+  .folha{ width:210mm; max-width:100%; min-height:297mm; margin:0 auto; background:var(--fundo);
+    background-image:linear-gradient(160deg, var(--fundo) 0%, var(--fundo2) 55%, var(--fundo) 100%);
+    box-shadow:0 2px 18px rgba(0,0,0,.25); padding:9mm 8mm; display:none; }
+
+  .cab{ display:flex; align-items:center; gap:14px; background:rgba(255,255,255,.06);
+    border:2px solid rgba(255,255,255,.35); border-radius:16px; padding:10px 16px; margin-bottom:12px; }
+  body.claro .cab{ background:var(--faixa); border-color:var(--faixa); }
+  .cab img{ height:64px; width:auto; border-radius:10px; }
+  .cab img.ebd{ height:60px; filter:invert(1) brightness(1.6); mix-blend-mode:screen; }
+  body.claro .cab img.ebd{ filter:invert(1) brightness(1.8); }
+  .cab .tit{ flex:1; text-align:center; font-family:'Archivo',sans-serif; font-weight:900;
+    font-size:40px; letter-spacing:.5px; color:var(--titulo);
+    text-shadow:0 2px 4px rgba(0,0,0,.5); }
+
+  .grid{ display:grid; grid-template-columns:1fr 62mm; gap:10px; align-items:start; }
+  @media (max-width:820px){ .grid{ grid-template-columns:1fr; } .cab .tit{ font-size:28px; } }
+
+  .secao{ background:var(--faixa); color:var(--titulo); border-radius:12px; padding:9px 14px;
+    font-family:'Archivo',sans-serif; font-weight:800; font-size:20px; letter-spacing:.3px;
+    text-shadow:0 1px 3px rgba(0,0,0,.6); margin-bottom:8px; }
+
+  .painel{ background:var(--painel); border-radius:12px; padding:10px 12px; margin-bottom:12px;
+    border:1px solid var(--painel-borda); box-shadow:0 2px 6px rgba(0,0,0,.25); overflow-x:auto; }
+
+  table{ width:100%; border-collapse:collapse; }
+  thead th{ font-family:'Archivo',sans-serif; font-size:12px; letter-spacing:1.5px; color:#5c5545;
+    text-transform:uppercase; border-bottom:2px solid #b9b2a2; padding:4px 8px; text-align:left; }
+  thead th.c{ text-align:center; } thead th.r{ text-align:right; }
+  tbody td{ padding:5px 8px; border-bottom:1px solid #dfd9cc; font-size:14.5px; }
+  tbody tr:last-child td{ border-bottom:none; }
+  td.rank{ width:52px; text-align:center; font-weight:800; }
+  td.pts{ text-align:right; font-weight:800; width:70px; }
+  td.faltas{ text-align:center; color:var(--suave); width:64px; }
+  td.nome{ font-weight:600; }
+  td.nome small{ font-weight:500; color:var(--suave); }
+  tr.t1 td{ background:rgba(212,175,55,.16); }
+  tr.t2 td{ background:rgba(154,160,166,.16); }
+  tr.t3 td{ background:rgba(176,141,87,.16); }
+  tr.zero td{ color:#9a958a; }
+  tr.zero td.pts{ color:#9a958a; }
+  .medal{ display:inline-flex; width:26px; height:26px; border-radius:50%; align-items:center; justify-content:center; vertical-align:middle; }
+  .m1{ background:rgba(212,175,55,.25); } .m2{ background:rgba(154,160,166,.3); } .m3{ background:rgba(176,141,87,.3); }
+  .nota{ font-size:11.5px; color:var(--suave); padding:6px 4px 2px; font-style:italic; }
+
+  .lado .painel{ padding:10px 12px; }
+  .lado h3{ font-family:'Archivo',sans-serif; font-size:14px; letter-spacing:1px; text-transform:uppercase;
+    background:var(--faixa); color:var(--titulo); border-radius:8px; padding:7px 10px; margin:-2px -3px 8px; text-align:center;
+    text-shadow:0 1px 2px rgba(0,0,0,.5); }
+  .lado p{ font-size:12.5px; line-height:1.5; color:#3c3a34; }
+  .lado ol{ margin:4px 0 0 18px; font-size:12.5px; line-height:1.55; color:#3c3a34; }
+  .lado ol b{ text-transform:uppercase; font-size:12px; }
+  .tp{ width:100%; border-collapse:collapse; margin-top:2px; }
+  .tp th{ font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#5c5545; border-bottom:2px solid #b9b2a2; padding:3px 4px; text-align:left; }
+  .tp th.r{ text-align:right; }
+  .tp td{ font-size:12.5px; padding:4.5px 4px; border-bottom:1px solid #dfd9cc; }
+  .tp td.r{ text-align:right; font-weight:800; color:var(--verde); width:44px; }
+  .tp tr:last-child td{ border-bottom:none; }
+
+  .rodape{ text-align:center; font-size:11px; color:rgba(255,255,255,.75); margin-top:4px; }
+  body.claro .rodape{ color:#5c6270; }
+
+  @media print{
+    body{ background:#fff; padding:0; }
+    .toolbar,.status{ display:none !important; }
+    .folha{ box-shadow:none; margin:0; width:auto; min-height:auto; }
+    @page{ size:A4; margin:0; }
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <select id="tri">
+      <option value="1">1º Trimestre</option><option value="2">2º Trimestre</option>
+      <option value="3">3º Trimestre</option><option value="4">4º Trimestre</option>
+    </select>
+    <select id="topn">
+      <option value="10">Top 10</option><option value="15">Top 15</option>
+      <option value="20">Top 20</option><option value="0">Todos</option>
+    </select>
+    <button class="tema" id="tema">Tema claro</button>
+    <button class="print" onclick="window.print()">Imprimir / PDF</button>
+    <span class="hint">Atualizado automaticamente todo domingo. Ao imprimir, ative "Gráficos de fundo" e desative "Cabeçalhos e rodapés".</span>
+  </div>
+  <div class="status" id="status">Carregando…</div>
+
+  <div class="folha" id="folha">
+    <div class="cab">
+      <img src="logo-igreja.png" alt="" onerror="this.style.display='none'">
+      <div class="tit">EBD City Conceição</div>
+      <img class="ebd" src="logo-ebd.png" alt="" onerror="this.style.display='none'">
+    </div>
+
+    <div class="grid">
+      <div class="principal">
+        <div class="secao" id="tit-alunos">Alunos</div>
+        <div class="painel">
+          <table>
+            <thead><tr><th class="c">Rank</th><th>Nome</th><th class="r">Pontos</th><th class="c">Faltas</th></tr></thead>
+            <tbody id="corpo-alunos"></tbody>
+          </table>
+          <div class="nota">*Todos os alunos concorrem em igualdade, sem distinção de categoria.</div>
+        </div>
+
+        <div class="secao" id="tit-prof">Professores</div>
+        <div class="painel">
+          <table>
+            <thead><tr><th class="c">Rank</th><th>Nome</th><th class="r">Pontos</th><th class="c">Faltas</th></tr></thead>
+            <tbody id="corpo-prof"></tbody>
+          </table>
+          <div class="nota">*A mesma tabela de pontos vale para os professores.</div>
+        </div>
+      </div>
+
+      <div class="lado">
+        <div class="painel">
+          <h3>Como o ranking é calculado</h3>
+          <p><b>Cálculo trimestral.</b> A pontuação é acumulada ao longo do trimestre (ex.: Jul–Set). Toda semana o mural é atualizado — dá pra subir de posição a cada domingo!</p>
+        </div>
+        <div class="painel">
+          <h3>Critérios de classificação</h3>
+          <ol>
+            <li><b>Mais pontos</b> (primeiro critério)</li>
+            <li><b>Menos faltas</b> (desempate)</li>
+            <li><b>Persistência de empate:</b> sorteio ou competição entre os empatados</li>
+          </ol>
+        </div>
+        <div class="painel">
+          <h3>Como pontuar</h3>
+          <table class="tp">
+            <thead><tr><th>Ação</th><th class="r">Pontos</th></tr></thead>
+            <tbody>
+              <tr><td>Presença</td><td class="r">5</td></tr>
+              <tr><td>Pontualidade (chegar até 09h10)</td><td class="r">10</td></tr>
+              <tr><td>Trouxe Bíblia</td><td class="r">5</td></tr>
+              <tr><td>Trouxe Revista</td><td class="r">5</td></tr>
+              <tr><td>Trouxe visitante</td><td class="r">15</td></tr>
+              <tr><td>Alimento p/ o café (do dia)</td><td class="r">15</td></tr>
+              <tr><td>Alimentos perecíveis</td><td class="r">10</td></tr>
+              <tr><td>Resumo da aula (falar no final)</td><td class="r">10</td></tr>
+              <tr><td>Substituir professor</td><td class="r">15</td></tr>
+            </tbody>
+          </table>
+          <p style="margin-top:8px; font-size:11.5px;"><b>⚡Substituir um professor:</b> O professor faltou? Sem problemas! Se você assumir o comando e der a aula no lugar dele (independente do motivo da ausência), garante esses 15 pontos na hora.</p>
+        </div>
+      </div>
+    </div>
+    <div class="rodape" id="rodape"></div>
+  </div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const nomesTri = {1:'1º',2:'2º',3:'3º',4:'4º'};
+  const CLASSE_PROFESSORES = /PROFESSOR/i;
+
+  let ano = new Date().getFullYear();
+
+  $('tri').value = Math.floor(new Date().getMonth()/3)+1;
+
+  $('tema').addEventListener('click', () => {
+    document.body.classList.toggle('claro');
+    $('tema').textContent = document.body.classList.contains('claro') ? 'Tema escuro' : 'Tema claro';
+  });
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+  function taca(cor){
+    return `<span class="medal ${cor==='#d4af37'?'m1':cor==='#9aa0a6'?'m2':'m3'}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${cor}" stroke-width="2.4">
+        <path d="M8 21h8M12 17v4M7 4h10v6a5 5 0 01-10 0V4zM7 6H4v1a3 3 0 003 3M17 6h3v1a3 3 0 01-3 3"/></svg></span>`;
+  }
+  const cores = {1:'#d4af37',2:'#9aa0a6',3:'#b08d57'};
+
+  function preencher(tbodyId, lista, topN){
+    const corpo = $(tbodyId); corpo.innerHTML='';
+    const mostrar = topN>0 ? lista.slice(0, topN) : lista;
+    if(!mostrar.length){
+      corpo.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#9a958a;padding:12px">Sem lançamentos neste trimestre.</td></tr>';
+      return;
+    }
+    mostrar.forEach(l => {
+      const tr = document.createElement('tr');
+      if(l.pos<=3 && l.pontos>0) tr.className='t'+l.pos;
+      else if(l.pontos===0) tr.className='zero';
+      const medalha = (l.pos<=3 && l.pontos>0) ? taca(cores[l.pos]) : '';
+      tr.innerHTML = `<td class="rank">${l.pos}º</td>
+        <td class="nome">${medalha} ${esc(l.nome)} <small>· ${esc(l.classe)}</small></td>
+        <td class="pts">${l.pontos}</td>
+        <td class="faltas">${l.faltas}</td>`;
+      corpo.appendChild(tr);
+    });
+  }
+
+  function render(data){
+    const topN = Number($('topn').value);
+    const rot = `${nomesTri[data.trimestre]} Trimestre de ${data.ano}`;
+    const pref = topN>0 ? `Top ${topN} ` : '';
+
+    const prof = [], alunos = [];
+    data.linhas.forEach(l => (CLASSE_PROFESSORES.test(l.classe) ? prof : alunos).push(l));
+    alunos.forEach((l,i)=>l.pos=i+1);
+    prof.forEach((l,i)=>l.pos=i+1);
+
+    $('tit-alunos').textContent = `${pref}Alunos — ${rot}`;
+    $('tit-prof').textContent = `${pref}Professores — ${rot}`;
+    preencher('corpo-alunos', alunos, topN);
+    preencher('corpo-prof', prof, topN);
+
+    document.querySelectorAll('#corpo-prof .nome small').forEach(s=>s.remove());
+
+    const d = new Date(data.geradoEm);
+    $('rodape').textContent = '🔄 Atualizado em ' + d.toLocaleDateString('pt-BR') +
+      ' às ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) + ' • EBD Control';
+    $('folha').style.display='block';
+  }
+
+  async function carregar(){
+    $('status').textContent='Carregando…';
+    try{
+      // cache: 'no-cache' revalida com o servidor, então o F5 sempre pega a
+      // publicação mais recente em vez do JSON guardado pelo navegador.
+      const r = await fetch(`ranking-${ano}-${$('tri').value}.json`, { cache:'no-cache' });
+      if(!r.ok) throw new Error(`ranking ainda não publicado para este trimestre (${r.status})`);
+      const data = await r.json();
+      if(!data || !data.linhas) throw new Error('arquivo de ranking em formato inesperado');
+      render(data);
+      $('status').textContent='';
+    }catch(err){
+      $('folha').style.display='none';
+      $('status').textContent='Não foi possível carregar: '+err.message;
+    }
+  }
+
+  async function iniciar(){
+    try{
+      const m = await fetch('meta.json', { cache:'no-cache' });
+      if(m.ok){ const meta = await m.json(); if(meta.ano) ano = meta.ano; }
+    }catch(_){ /* sem meta.json a página cai no ano corrente */ }
+    carregar();
+  }
+
+  $('tri').addEventListener('change', carregar);
+  $('topn').addEventListener('change', carregar);
+  iniciar();
+</script>
+</body>
+</html>

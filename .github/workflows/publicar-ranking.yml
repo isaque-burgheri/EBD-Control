@@ -1,0 +1,88 @@
+name: Publicar ranking
+
+# A página do mural é estática: o Actions busca o ranking já calculado no Apps Script,
+# grava os JSONs ao lado do HTML e publica tudo no GitHub Pages.
+#
+# A URL /exec NUNCA aparece no site. Ela fica no segredo EBD_APPS_SCRIPT_URL do
+# repositório, porque `doGet` sem parâmetro devolve a planilha inteira — incluindo
+# telefones e datas de nascimento dos membros. Só o recorte `?ranking=1` vai ao ar,
+# e ele traz apenas nome, classe, pontos e faltas.
+#
+# CONFIGURAÇÃO (uma vez):
+#   1. Settings -> Secrets and variables -> Actions -> New repository secret
+#      Nome: EBD_APPS_SCRIPT_URL   Valor: a URL /exec da implantação
+#   2. Settings -> Pages -> Source: GitHub Actions
+#   3. Actions -> Publicar ranking -> Run workflow (para a primeira publicação)
+
+on:
+  schedule:
+    - cron: '0 15 * * 0'   # domingo, 15:00 UTC (12:00 em Brasília), depois da EBD
+  workflow_dispatch:
+    inputs:
+      ano:
+        description: 'Ano a publicar (vazio = ano corrente)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Montar o site
+        env:
+          EXEC_URL: ${{ secrets.EBD_APPS_SCRIPT_URL }}
+          ANO_ENTRADA: ${{ inputs.ano }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${EXEC_URL}" ]; then
+            echo "::error::O segredo EBD_APPS_SCRIPT_URL não está configurado."
+            exit 1
+          fi
+
+          ano="${ANO_ENTRADA:-$(date -u +%Y)}"
+          mkdir -p _site
+          cp site/index.html _site/index.html
+          # Logotipos são opcionais: a página os esconde sozinha se não existirem.
+          cp site/*.png _site/ 2>/dev/null || true
+
+          for tri in 1 2 3 4; do
+            echo "Buscando ${ano} T${tri}…"
+            # --fail derruba o passo em erro HTTP; -L segue o 302 do Apps Script.
+            curl --fail --silent --show-error --location --retry 3 --retry-delay 5 \
+              "${EXEC_URL}?ranking=1&ano=${ano}&trimestre=${tri}" \
+              -o "_site/ranking-${ano}-${tri}.json"
+
+            # O Apps Script responde 200 com HTML de login quando a implantação não
+            # está aberta a "qualquer pessoa". Sem esta checagem publicaríamos lixo.
+            if ! jq -e '.linhas' "_site/ranking-${ano}-${tri}.json" > /dev/null; then
+              echo "::error::Resposta sem o campo 'linhas' em ${ano} T${tri}. Confira se a implantação está publicada para 'Qualquer pessoa'."
+              exit 1
+            fi
+          done
+
+          jq -n --arg ano "${ano}" \
+                --arg publicadoEm "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                '{ano: ($ano|tonumber), trimestres: [1,2,3,4], publicadoEm: $publicadoEm}' \
+            > _site/meta.json
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
