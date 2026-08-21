@@ -110,7 +110,10 @@ fun VisitantesScreen() {
         else ConverterDialog(
             nome = v.nome,
             classesNomes = classes.map { it.nome },
-            onConfirmar = { idx -> vm.converter(v, classes[idx].id); converter = null },
+            onConfirmar = { idx ->
+                classes.getOrNull(idx)?.let { vm.converter(v, it.id) }
+                converter = null
+            },
             onCancelar = { converter = null }
         )
     }

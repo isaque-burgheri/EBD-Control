@@ -3,6 +3,11 @@ package com.ebd.controle.data
 import androidx.room.withTransaction
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 class Repository(private val db: AppDatabase) {
@@ -256,6 +261,45 @@ class Repository(private val db: AppDatabase) {
     suspend fun totalClasses() = classeDao.contar()
     suspend fun visitantesPendentes() = visitanteDao.contarPendentes()
 
+    /**
+     * Fotografa as 10 tabelas para o backup. Usa `todosIncl()` de propósito: linhas com
+     * exclusão lógica precisam entrar no arquivo para que a exclusão continue se
+     * propagando depois de uma restauração.
+     */
+    suspend fun coletarParaBackup() = DadosBackup(
+        classes = classeDao.todosIncl(),
+        alunos = alunoDao.todosIncl(),
+        chamadas = chamadaDao.todosIncl(),
+        presencas = presencaDao.todosIncl(),
+        financeiro = financeiroDao.todosIncl(),
+        visitantes = visitanteDao.todosIncl(),
+        revistasPrecos = revistaPrecoDao.todosIncl(),
+        revistasEntregas = revistaEntregaDao.todosIncl(),
+        criterios = criterioDao.todosIncl(),
+        pontos = pontoDao.todosIncl()
+    )
+
+    /**
+     * Substitui o banco pelo conteúdo do backup, numa transação só.
+     *
+     * Grava cada linha como ela está no arquivo — id, uid e updatedAt inclusive. Como o
+     * banco acabou de ser esvaziado, reusar os ids originais é seguro e preserva todos os
+     * vínculos sem precisar remapear nada.
+     */
+    suspend fun restaurarDeBackup(d: DadosBackup) = db.withTransaction {
+        limparTudo()
+        d.classes.forEach { classeDao.inserir(it) }
+        d.alunos.forEach { alunoDao.inserir(it) }
+        d.chamadas.forEach { chamadaDao.inserir(it) }
+        d.presencas.forEach { presencaDao.inserir(it) }
+        d.financeiro.forEach { financeiroDao.inserir(it) }
+        d.visitantes.forEach { visitanteDao.inserir(it) }
+        d.revistasPrecos.forEach { revistaPrecoDao.inserir(it) }
+        d.revistasEntregas.forEach { revistaEntregaDao.inserir(it) }
+        d.criterios.forEach { criterioDao.inserir(it) }
+        d.pontos.forEach { pontoDao.inserir(it) }
+    }
+
     /** Apaga TODOS os dados (restauração de backup / inicializar pela nuvem). */
     suspend fun limparTudo() {
         presencaDao.deletarTudo(); chamadaDao.deletarTudo(); visitanteDao.deletarTudo()
@@ -306,6 +350,7 @@ class Repository(private val db: AppDatabase) {
             cha.forEach { put(JSONObject()
                 .put("uid", it.uid).put("classeUid", uidClasse[it.classeId] ?: "")
                 .put("data", it.data).put("licao", it.licao).put("oferta", it.oferta)
+                .put("dizimos", it.dizimos)
                 .put("visitantes", it.visitantes).put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
         })
         root.put("presencas", JSONArray().apply {
@@ -383,7 +428,11 @@ class Repository(private val db: AppDatabase) {
                 especial = jBool(o, "especial"),
                 uid = uid, updatedAt = rUpd, deleted = rDel)
             if (local == null) alunoDao.inserir(dados2)
-            else if (rUpd > (local.updatedAt ?: 0L)) alunoDao.atualizar(dados2.copy(id = local.id))
+            else if (rUpd > (local.updatedAt ?: 0L)) alunoDao.atualizar(
+                // Campo ausente é falta de informação, não exclusão: sem esta guarda um
+                // aparelho com parsing quebrado apaga o aniversário em todos os outros.
+                dados2.copy(id = local.id, dataNascimento = dados2.dataNascimento ?: local.dataNascimento)
+            )
         }
         val mapaAluno = alunoDao.todosIncl().associate { (it.uid ?: "") to it.id }
 
@@ -394,10 +443,14 @@ class Repository(private val db: AppDatabase) {
             val rUpd = jLong(o, "updatedAt"); val rDel = jBool(o, "deleted")
             val local = chamadaDao.porUid(uid)
             val dados2 = Chamada(classeId = cId, data = jLong(o, "data"), licao = jInt(o, "licao"),
-                oferta = jDouble(o, "oferta"), visitantes = jInt(o, "visitantes"),
+                oferta = jDouble(o, "oferta"), dizimos = jDouble(o, "dizimos"),
+                visitantes = jInt(o, "visitantes"),
                 uid = uid, updatedAt = rUpd, deleted = rDel)
             if (local == null) chamadaDao.inserir(dados2)
-            else if (rUpd > (local.updatedAt ?: 0L)) chamadaDao.atualizar(dados2.copy(id = local.id))
+            else if (rUpd > (local.updatedAt ?: 0L)) chamadaDao.atualizar(
+                // Data ilegível vira 0L (01/01/1970) e tiraria a chamada do trimestre.
+                dados2.copy(id = local.id, data = if (dados2.data > 0L) dados2.data else local.data)
+            )
         }
         val mapaChamada = chamadaDao.todosIncl().associate { (it.uid ?: "") to it.id }
 
@@ -507,9 +560,32 @@ private fun jBool(o: JSONObject, k: String): Boolean = when (val v = o.opt(k)) {
 private fun jLongOrNull(o: JSONObject, k: String): Long? {
     if (o.isNull(k)) return null
     return when (val v = o.opt(k)) {
-        is Number -> v.toLong(); is String -> if (v.isBlank()) null else v.toDoubleOrNull()?.toLong(); else -> null
+        is Number -> v.toLong()
+        is String -> if (v.isBlank()) null else v.toDoubleOrNull()?.toLong() ?: parseDataTexto(v)
+        else -> null
     }
 }
+
+/**
+ * O Apps Script devolve células formatadas como data em texto, não em millis:
+ * ISO-8601 quando o `getValues()` entrega um Date do JS, ou `dd/MM/yyyy` quando a
+ * célula é lida como string. Sem isto o valor era descartado e o campo virava
+ * null/1970 — foi o que apagava aniversários e jogava chamadas para fora do trimestre.
+ */
+private fun parseDataTexto(texto: String): Long? {
+    val s = texto.trim()
+    if (s.isEmpty()) return null
+    val fuso = ZoneId.systemDefault()
+    fun inicioDoDia(d: LocalDate) = d.atStartOfDay(fuso).toInstant().toEpochMilli()
+
+    return runCatching { Instant.parse(s).toEpochMilli() }
+        .recoverCatching { LocalDateTime.parse(s).atZone(fuso).toInstant().toEpochMilli() }
+        .recoverCatching { inicioDoDia(LocalDate.parse(s)) }
+        .recoverCatching { inicioDoDia(LocalDate.parse(s, FORMATO_BR)) }
+        .getOrNull()
+}
+
+private val FORMATO_BR: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 private fun jLong(o: JSONObject, k: String): Long = jLongOrNull(o, k) ?: 0L
 private fun jInt(o: JSONObject, k: String): Int = jLong(o, k).toInt()
 private fun jDouble(o: JSONObject, k: String): Double = when (val v = o.opt(k)) {

@@ -81,7 +81,9 @@ fun MembrosScreen() {
         }
     }
 
-    if (mostrarForm) {
+    // `classes` vem de um Flow vivo: uma exclusão remota pode esvaziá-la com o
+    // diálogo aberto, e aí `first()` estoura.
+    if (mostrarForm && classes.isNotEmpty()) {
         AlunoDialog(
             inicial = editando,
             classesNomes = classes.map { it.nome },
@@ -155,7 +157,8 @@ private fun AlunoDialog(
                     onConfirmar(
                         (inicial ?: Aluno(classeId = 0, nome = "")).copy(
                             nome = nome.trim(),
-                            classeId = classeIds[classeIdx],
+                            classeId = classeIds.getOrNull(classeIdx)
+                                ?: classeIds.firstOrNull() ?: return@TextButton,
                             dataNascimento = nasc,
                             telefone = tel.trim(),
                             cargo = CARGOS[cargoIdx],

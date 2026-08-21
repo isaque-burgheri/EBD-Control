@@ -4,9 +4,6 @@ import android.app.Application
 import com.ebd.controle.data.AppDatabase
 import com.ebd.controle.data.Repository
 import com.ebd.controle.data.SyncManager
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 class EBDApp : Application() {
     lateinit var repository: Repository
@@ -20,7 +17,6 @@ class EBDApp : Application() {
         repository = Repository(db)
         syncManager = SyncManager(this, repository, db)
         syncManager.iniciar()
-        CoroutineScope(Dispatchers.IO).launch {}
     }
 
     /** Na primeira execução, cria as classes e alunos de exemplo (da sua planilha).

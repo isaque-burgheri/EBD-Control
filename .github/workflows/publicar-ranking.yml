@@ -14,9 +14,17 @@ name: Publicar ranking
 #   2. Settings -> Pages -> Source: GitHub Actions
 #   3. Actions -> Publicar ranking -> Run workflow (para a primeira publicação)
 
+# O cron do GitHub é UTC e Brasília é UTC-3 o ano inteiro (sem horário de verão
+# desde 2019): some 3 horas ao horário local para chegar ao valor daqui.
+#
+# Os minutos são deslocados (5, 15, 25…) de propósito: a fila do Actions engarrafa
+# no minuto zero de cada hora, que é quando meio mundo agenda.
 on:
   schedule:
-    - cron: '0 15 * * 0'   # domingo, 15:00 UTC (12:00 em Brasília), depois da EBD
+    # Domingo, 8h05 às 12h55 (Brasília), a cada 10 min — durante e logo após a EBD.
+    - cron: '5-55/10 11-15 * * 0'
+    # Todo dia, 18h05 (Brasília) — recolhe o que foi lançado fora do domingo.
+    - cron: '5 21 * * *'
   workflow_dispatch:
     inputs:
       ano:

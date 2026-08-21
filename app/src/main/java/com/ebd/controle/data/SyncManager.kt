@@ -160,7 +160,8 @@ class SyncManager(
         private const val JANELA_REMOTA_MS = 2_000L    // ignora o eco do que acabou de aplicar
 
         private val TABELAS = arrayOf(
-            "classes", "alunos", "chamadas", "presencas", "financeiro", "visitantes"
+            "classes", "alunos", "chamadas", "presencas", "financeiro", "visitantes",
+            "criterios_pontuacao", "pontos_lancamentos", "revistas_precos", "revistas_entregas"
         )
     }
 }

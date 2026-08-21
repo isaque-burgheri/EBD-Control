@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.ebd.controle.BuildConfig
 import com.ebd.controle.data.SyncStatus
 import com.ebd.controle.data.formatarData
 import com.ebd.controle.ui.SettingsViewModel
@@ -162,7 +163,10 @@ fun SettingsScreen(nav: NavController) {
         Spacer(Modifier.height(24.dp))
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(
-                "Isaque S. Burgheri • Versão 1.1.0",
+                // Lido do build, não escrito à mão: o texto fixo aqui dizia 1.1.0
+                // enquanto o Gradle já ia na 3.0. O número entre parênteses é o
+                // versionCode — é ele que identifica o APK instalado em cada celular.
+                "Isaque S. Burgheri • Versão ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

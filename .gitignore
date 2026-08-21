@@ -7,3 +7,9 @@ build/
 .cxx
 *.iml
 .gradle
+
+# Log de build gerado no terminal do Android Studio (ver docs/ANALISE.md)
+build.log
+
+# Ferramentas locais do Claude Code (skills de terceiros, nao fazem parte do projeto)
+.claude/

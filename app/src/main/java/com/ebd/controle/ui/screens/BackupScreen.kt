@@ -37,7 +37,12 @@ fun BackupScreen() {
             try {
                 val json = withContext(Dispatchers.IO) { exportarBackup(repo) }
                 withContext(Dispatchers.IO) {
-                    ctx.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
+                    // Um stream nulo antes gerava arquivo vazio com mensagem de sucesso:
+                    // o pior desfecho possível, porque o usuário guarda o nada achando
+                    // que está protegido.
+                    val saida = ctx.contentResolver.openOutputStream(uri)
+                        ?: error("não foi possível gravar no local escolhido")
+                    saida.use { it.write(json.toByteArray()) }
                 }
                 snackbar.showSnackbar("Backup exportado com sucesso.")
             } catch (e: Exception) {
@@ -54,9 +59,11 @@ fun BackupScreen() {
                 val json = withContext(Dispatchers.IO) {
                     ctx.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                 }
-                if (json != null) {
-                    withContext(Dispatchers.IO) { importarBackup(repo, json) }
-                    snackbar.showSnackbar("Backup restaurado.")
+                if (json == null) {
+                    snackbar.showSnackbar("Não foi possível ler o arquivo escolhido.")
+                } else {
+                    val total = withContext(Dispatchers.IO) { importarBackup(repo, json) }
+                    snackbar.showSnackbar("Backup restaurado — $total registros.")
                 }
             } catch (e: Exception) {
                 snackbar.showSnackbar("Erro ao restaurar: ${e.message}")
@@ -75,9 +82,9 @@ fun BackupScreen() {
                     Spacer(Modifier.height(6.dp))
                     Text(
                         "Tudo fica salvo no próprio celular (funciona sem internet). " +
-                        "O backup gera um arquivo com TODOS os dados (classes, membros, chamadas, " +
-                        "visitantes e finanças). Use-o para guardar uma cópia de segurança ou para " +
-                        "passar os dados a outro celular.",
+                        "O backup gera um arquivo com TODOS os dados: classes, membros, chamadas, " +
+                        "presenças, visitantes, finanças, revistas e a pontuação completa. " +
+                        "Use-o para guardar uma cópia de segurança ou para passar os dados a outro celular.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }

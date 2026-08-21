@@ -13,8 +13,10 @@ android {
         applicationId = "com.ebd.controle"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "3.0"
+        // versionCode: número que o Android usa para reconhecer atualização — sempre
+        // incrementar a cada APK distribuído. versionName: o que o humano lê.
+        versionCode = 2
+        versionName = "3.1"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -36,6 +38,9 @@ android {
     }
     buildFeatures {
         compose = true
+        // Gera a classe BuildConfig, de onde a tela de Configurações lê a versão.
+        // No AGP 8 isto vem desligado por padrão.
+        buildConfig = true
     }
 }
 
@@ -57,10 +62,10 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
-    // Sincronização (HTTP)
+    // Sincronização (HTTP). O Apps Script devolve JSON solto e o merge é feito à mão
+    // com org.json, então OkHttp puro basta — Retrofit e Gson estavam declarados e
+    // nunca foram usados.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.retrofit2:retrofit:2.11.0")
-    implementation("com.squareup.retrofit2:converter-gson:2.11.0")
 
     // Sincronização automática (agendamento em segundo plano + ciclo de vida do app)
     implementation("androidx.work:work-runtime-ktx:2.11.2")

@@ -261,22 +261,35 @@
     $('folha').style.display='block';
   }
 
-  async function carregar(){
-    $('status').textContent='Carregando…';
+  let ultimoGeradoEm = null;
+
+  async function carregar(silencioso){
+    if(!silencioso) $('status').textContent='Carregando…';
     try{
-      // cache: 'no-cache' revalida com o servidor, então o F5 sempre pega a
+      // cache: 'no-cache' revalida com o servidor, então sempre pegamos a
       // publicação mais recente em vez do JSON guardado pelo navegador.
       const r = await fetch(`ranking-${ano}-${$('tri').value}.json`, { cache:'no-cache' });
       if(!r.ok) throw new Error(`ranking ainda não publicado para este trimestre (${r.status})`);
       const data = await r.json();
       if(!data || !data.linhas) throw new Error('arquivo de ranking em formato inesperado');
-      render(data);
+      // Só redesenha quando o conteúdo mudou de verdade: numa TV de mural, repintar
+      // a tabela a cada minuto é piscada à toa.
+      if(data.geradoEm !== ultimoGeradoEm){
+        ultimoGeradoEm = data.geradoEm;
+        render(data);
+      }
       $('status').textContent='';
     }catch(err){
+      if(silencioso) return;   // falha de rede na checagem automática não apaga o mural
       $('folha').style.display='none';
       $('status').textContent='Não foi possível carregar: '+err.message;
     }
   }
+
+  // Checa por publicação nova a cada minuto, e imediatamente ao voltar para a aba.
+  // Não gasta nada: é um arquivo estático e o servidor responde 304 quando não mudou.
+  setInterval(() => { if(!document.hidden) carregar(true); }, 60_000);
+  document.addEventListener('visibilitychange', () => { if(!document.hidden) carregar(true); });
 
   async function iniciar(){
     try{
@@ -286,8 +299,10 @@
     carregar();
   }
 
-  $('tri').addEventListener('change', carregar);
-  $('topn').addEventListener('change', carregar);
+  // Sem o wrapper, o Event do listener chegaria como `silencioso` e a troca de
+  // trimestre engoliria os erros em vez de mostrá-los.
+  $('tri').addEventListener('change', () => { ultimoGeradoEm = null; carregar(); });
+  $('topn').addEventListener('change', () => { ultimoGeradoEm = null; carregar(); });
   iniciar();
 </script>
 </body>

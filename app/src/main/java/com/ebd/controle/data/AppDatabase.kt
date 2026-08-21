@@ -27,6 +27,13 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun visitanteDao(): VisitanteDao
 
     companion object {
+        /**
+         * Espelha o `version` da anotação acima — anotação não aceita referência ao próprio
+         * companion. Serve para carimbar a origem do arquivo de backup; mantenha os dois
+         * em sincronia ao subir o esquema.
+         */
+        const val VERSAO_ESQUEMA = 8
+
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -97,8 +104,6 @@ abstract class AppDatabase : RoomDatabase() {
         // numa instalação com sync, os critérios da nuvem se mesclam por uid.
         private val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                val agora = System.currentTimeMillis()
-
                 db.execSQL("ALTER TABLE alunos ADD COLUMN especial INTEGER NOT NULL DEFAULT 0")
 
                 db.execSQL(
@@ -119,35 +124,49 @@ abstract class AppDatabase : RoomDatabase() {
                         "`uid` TEXT, `updatedAt` INTEGER, `deleted` INTEGER)"
                 )
 
-                // Critérios padrão (uid fixo e legível -> não duplica ao sincronizar
-                // entre celulares que rodaram a mesma migração).
-                // (nome, pontos, grupo, porQuantidade, ordem)
-                val padrao = listOf(
-                    listOf("Presença", 10, "REGULAR", 0, 1),
-                    listOf("Pontualidade", 5, "REGULAR", 0, 2),
-                    listOf("Trouxe Bíblia", 5, "REGULAR", 0, 3),
-                    listOf("Trouxe Revista", 5, "REGULAR", 0, 4),
-                    listOf("Participação", 5, "REGULAR", 0, 5),
-                    listOf("Trouxe visitante", 15, "REGULAR", 0, 6),
-                    listOf("Presença", 10, "ESPECIAL", 0, 1),
-                    listOf("Permaneceu na sala", 10, "ESPECIAL", 0, 2),
-                    listOf("Atitude / gentileza", 5, "ESPECIAL", 0, 3),
-                    listOf("Reverência na oração", 5, "ESPECIAL", 0, 4),
-                    listOf("Ajudou a organizar", 5, "ESPECIAL", 0, 5),
-                    listOf("Alimento p/ o café", 15, "CAFE", 0, 1),
-                    listOf("Sal / Fubá", 5, "CESTA", 1, 1),
-                    listOf("Arroz / Óleo", 15, "CESTA", 1, 2),
-                    listOf("Leite em pó", 20, "CESTA", 1, 3)
+                semearCriterios(db)
+            }
+        }
+
+        /**
+         * Critérios padrão, para o app abrir usável sem depender da nuvem.
+         *
+         * O uid é fixo e legível para não duplicar ao sincronizar entre celulares.
+         * E o `updatedAt` fica em 0 de propósito: com o carimbo da instalação, um
+         * celular recém-instalado entrava na nuvem "mais recente" que a planilha e
+         * devolvia os valores de fábrica por cima dos critérios já ajustados. Em 0,
+         * qualquer edição real vence e a semente só preenche o vazio.
+         */
+        private fun semearCriterios(db: SupportSQLiteDatabase) {
+            // (nome, pontos, grupo, porQuantidade, ordem)
+            val padrao = listOf(
+                listOf("Presença", 10, "REGULAR", 0, 1),
+                listOf("Pontualidade", 5, "REGULAR", 0, 2),
+                listOf("Trouxe Bíblia", 5, "REGULAR", 0, 3),
+                listOf("Trouxe Revista", 5, "REGULAR", 0, 4),
+                listOf("Participação", 5, "REGULAR", 0, 5),
+                listOf("Trouxe visitante", 15, "REGULAR", 0, 6),
+                listOf("Presença", 10, "ESPECIAL", 0, 1),
+                listOf("Permaneceu na sala", 10, "ESPECIAL", 0, 2),
+                listOf("Atitude / gentileza", 5, "ESPECIAL", 0, 3),
+                listOf("Reverência na oração", 5, "ESPECIAL", 0, 4),
+                listOf("Ajudou a organizar", 5, "ESPECIAL", 0, 5),
+                listOf("Alimento p/ o café", 15, "CAFE", 0, 1),
+                listOf("Sal / Fubá", 5, "CESTA", 1, 1),
+                listOf("Arroz / Óleo", 15, "CESTA", 1, 2),
+                listOf("Leite em pó", 20, "CESTA", 1, 3)
+            )
+            padrao.forEachIndexed { i, c ->
+                // INSERT simples: não há índice único em `uid`, então um "OR IGNORE"
+                // daria falsa sensação de proteção. Os dois chamadores são exclusivos
+                // entre si — onCreate roda em banco novo, a migração 7->8 roda em banco
+                // que vinha da 7 — então nenhum critério é inserido duas vezes.
+                db.execSQL(
+                    "INSERT INTO criterios_pontuacao " +
+                        "(nome, pontos, grupo, porQuantidade, ordem, ativo, uid, updatedAt, deleted) " +
+                        "VALUES (?, ?, ?, ?, ?, 1, ?, 0, 0)",
+                    arrayOf(c[0], c[1], c[2], c[3], c[4], "seed:criterio:$i")
                 )
-                padrao.forEachIndexed { i, c ->
-                    val uid = "seed:criterio:$i"
-                    db.execSQL(
-                        "INSERT INTO criterios_pontuacao " +
-                            "(nome, pontos, grupo, porQuantidade, ordem, ativo, uid, updatedAt, deleted) " +
-                            "VALUES (?, ?, ?, ?, ?, 1, ?, ?, 0)",
-                        arrayOf(c[0], c[1], c[2], c[3], c[4], uid, agora)
-                    )
-                }
             }
         }
 
@@ -159,6 +178,15 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "ebd-controle.db"
                 ).addMigrations(MIGRATION_1_2, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    // Numa instalação limpa o Room cria o esquema direto na versão atual
+                    // e NÃO roda migração nenhuma. Sem este callback, os critérios (que
+                    // só existiam dentro da MIGRATION_7_8) nunca eram criados: o app
+                    // nascia com a tela de Pontuação vazia até alguém configurar a nuvem.
+                    .addCallback(object : RoomDatabase.Callback() {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            semearCriterios(db)
+                        }
+                    })
                     .fallbackToDestructiveMigration()
                     .build().also { INSTANCE = it }
             }

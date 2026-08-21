@@ -13,6 +13,10 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +37,50 @@ import kotlinx.coroutines.launch
 
 private data class Marca(val presente: Boolean, val biblia: Boolean, val revista: Boolean)
 
+/*
+ * Savers para o estado do formulário sobreviver à recriação da Activity (rotação,
+ * mudança de tema do sistema, morte de processo em segundo plano). Sem eles, girar o
+ * celular no meio de uma chamada de 25 alunos apagava tudo — e o AndroidManifest não
+ * declara `configChanges`, então a recriação acontece mesmo.
+ *
+ * Tudo é serializado como String porque é o que o Bundle guarda sem cerimônia.
+ */
+private fun bit(b: Boolean) = if (b) '1' else '0'
+
+private val marcasSaver = listSaver<SnapshotStateMap<Long, Marca>, String>(
+    save = { mapa -> mapa.map { (id, m) -> "$id|${bit(m.presente)}${bit(m.biblia)}${bit(m.revista)}" } },
+    restore = { itens ->
+        mutableStateMapOf<Long, Marca>().apply {
+            itens.forEach { linha ->
+                val id = linha.substringBefore('|').toLongOrNull() ?: return@forEach
+                val f = linha.substringAfter('|')
+                if (f.length == 3) put(id, Marca(f[0] == '1', f[1] == '1', f[2] == '1'))
+            }
+        }
+    }
+)
+
+/**
+ * Nome e telefone viram duas entradas seguidas da lista, em vez de um campo só com
+ * separador: qualquer caractere escolhido como separador pode aparecer num nome ou
+ * num telefone, e aí o par volta partido.
+ */
+private val visitantesSaver = listSaver<SnapshotStateList<Pair<String, String>>, String>(
+    save = { lista -> lista.flatMap { listOf(it.first, it.second) } },
+    restore = { itens ->
+        mutableStateListOf<Pair<String, String>>().apply {
+            itens.chunked(2).forEach { par ->
+                if (par.size == 2) add(par[0] to par[1])
+            }
+        }
+    }
+)
+
+private val tocadosSaver = listSaver<SnapshotStateList<Long>, Long>(
+    save = { it.toList() },
+    restore = { mutableStateListOf<Long>().apply { addAll(it) } }
+)
+
 @Composable
 fun ChamadaScreen() {
     val vm: ChamadaViewModel = viewModel()
@@ -43,33 +91,63 @@ fun ChamadaScreen() {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
-    var classeIdx by remember { mutableStateOf(0) }
-    var data by remember { mutableStateOf(hojeMillis()) }
-    var licao by remember { mutableStateOf("") }
-    var oferta by remember { mutableStateOf("") }
-    val marcas = remember { mutableStateMapOf<Long, Marca>() }
-    var confirmarExcluir by remember { mutableStateOf(false) }
+    // A classe é guardada pelo id, não pela posição na lista: `classes` vem de um Flow
+    // vivo e reordena por nome quando o sync traz uma classe nova. Com índice, a tela
+    // trocava de classe sozinha no meio de uma chamada.
+    var classeId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var data by rememberSaveable { mutableStateOf(hojeMillis()) }
+    var licao by rememberSaveable { mutableStateOf("") }
+    var oferta by rememberSaveable { mutableStateOf("") }
+    val marcas = rememberSaveable(saver = marcasSaver) { mutableStateMapOf<Long, Marca>() }
+    var confirmarExcluir by rememberSaveable { mutableStateOf(false) }
+
+    // Alunos cujo chip o usuário tocou nesta sessão de edição. O que ele marcou tem
+    // precedência sobre o que chega do banco — ver o efeito de reconciliação abaixo.
+    val tocados = rememberSaveable(saver = tocadosSaver) { mutableStateListOf<Long>() }
 
     // visitantes adicionados nesta chamada (nome, telefone)
-    val visitantesNovos = remember { mutableStateListOf<Pair<String, String>>() }
-    var visNome by remember { mutableStateOf("") }
-    var visTel by remember { mutableStateOf("") }
+    val visitantesNovos = rememberSaveable(saver = visitantesSaver) { mutableStateListOf<Pair<String, String>>() }
+    var visNome by rememberSaveable { mutableStateOf("") }
+    var visTel by rememberSaveable { mutableStateOf("") }
 
-    val classeId = classes.getOrNull(classeIdx)?.id
+    val classeIdx = classes.indexOfFirst { it.id == classeId }.coerceAtLeast(0)
     val editando = chamadaExistente != null
 
-    // Ao trocar de classe ou data, recarrega alunos + chamada existente (se houver)
-    LaunchedEffect(classeId, data) { classeId?.let { vm.carregar(it, data) } }
+    // Escolhe a primeira classe no começo, e se a classe atual for removida remotamente.
+    LaunchedEffect(classes) {
+        if (classeId == null || classes.none { it.id == classeId }) {
+            classeId = classes.firstOrNull()?.id
+        }
+    }
 
-    // Pré-marca os alunos com o que já estava registrado (ou tudo desmarcado se for nova)
+    // Zerar o formulário é decisão de troca de contexto, não de recomposição. Guardar o
+    // contexto já carregado evita que a restauração após rotação caia aqui e apague o
+    // que o rememberSaveable acabou de devolver.
+    var contextoCarregado by rememberSaveable { mutableStateOf<String?>(null) }
+    val contextoAtual = "$classeId|$data"
+
+    LaunchedEffect(contextoAtual) {
+        if (contextoCarregado != contextoAtual) {
+            marcas.clear()
+            tocados.clear()
+            contextoCarregado = contextoAtual
+        }
+        classeId?.let { vm.carregar(it, data) }
+    }
+
+    // Reconcilia com o banco preservando o que o usuário já marcou. A versão anterior
+    // fazia `marcas.clear()` aqui: qualquer reemissão do Room — um sync a cada 15 min, ou
+    // o outro professor salvando a mesma chamada — apagava as marcações em andamento.
     LaunchedEffect(alunos, presencasExistentes) {
         val porAluno = presencasExistentes.associateBy { it.alunoId }
-        marcas.clear()
         alunos.forEach { a ->
+            if (a.id in tocados) return@forEach
             val p = porAluno[a.id]
             marcas[a.id] = if (p != null) Marca(p.presente, p.biblia, p.revista)
                            else Marca(false, false, false)
         }
+        // Aluno que saiu da classe não deve continuar contando como presente.
+        marcas.keys.retainAll(alunos.mapTo(HashSet()) { it.id })
     }
 
     // Pré-preenche lição e oferta a partir da chamada carregada
@@ -90,7 +168,8 @@ fun ChamadaScreen() {
         LazyColumn(Modifier.fillMaxSize().padding(p).padding(horizontal = 12.dp)) {
             item {
                 Spacer(Modifier.height(8.dp))
-                Dropdown("Classe", classes.map { it.nome }, classeIdx, { classeIdx = it })
+                Dropdown("Classe", classes.map { it.nome }, classeIdx,
+                    { idx -> classes.getOrNull(idx)?.let { classeId = it.id } })
                 Spacer(Modifier.height(8.dp))
                 DateField("Data da aula", data, onPick = { data = it })
                 if (editando) {
@@ -164,17 +243,23 @@ fun ChamadaScreen() {
                 Spacer(Modifier.height(4.dp))
             }
 
-            items(alunos) { a ->
+            items(alunos, key = { it.id }) { a ->
                 val m = marcas[a.id] ?: Marca(false, false, false)
+                // Registrar o toque é o que protege a marcação de ser sobrescrita pela
+                // próxima reemissão do banco.
+                val marcar = { nova: Marca ->
+                    marcas[a.id] = nova
+                    if (a.id !in tocados) tocados.add(a.id)
+                }
                 Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(12.dp)) {
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Text(a.nome, Modifier.weight(1f))
-                        FilterChip(m.presente, onClick = { marcas[a.id] = m.copy(presente = !m.presente) }, label = { Text("P") })
+                        FilterChip(m.presente, onClick = { marcar(m.copy(presente = !m.presente)) }, label = { Text("P") })
                         Spacer(Modifier.width(4.dp))
-                        FilterChip(m.biblia, onClick = { marcas[a.id] = m.copy(biblia = !m.biblia) }, label = { Text("B") })
+                        FilterChip(m.biblia, onClick = { marcar(m.copy(biblia = !m.biblia)) }, label = { Text("B") })
                         Spacer(Modifier.width(4.dp))
-                        FilterChip(m.revista, onClick = { marcas[a.id] = m.copy(revista = !m.revista) }, label = { Text("R") })
+                        FilterChip(m.revista, onClick = { marcar(m.copy(revista = !m.revista)) }, label = { Text("R") })
                     }
                 }
             }
@@ -184,7 +269,10 @@ fun ChamadaScreen() {
                 Button(
                     onClick = {
                         val cid = classeId ?: return@Button
-                        val chamada = Chamada(
+                        // Parte da chamada existente em vez de montar uma nova: o
+                        // formulário não tem campo de dízimos, e um objeto novo traria
+                        // 0.0 que o sync espalharia para os outros aparelhos.
+                        val chamada = (chamadaExistente ?: Chamada(classeId = cid, data = data)).copy(
                             classeId = cid, data = data,
                             licao = licao.toIntOrNull() ?: 0,
                             oferta = oferta.replace(",", ".").toDoubleOrNull() ?: 0.0,
@@ -204,6 +292,9 @@ fun ChamadaScreen() {
                                 snackbar.showSnackbar(if (eraEdicao) "Chamada atualizada!" else "Chamada salva!")
                             }
                             visitantesNovos.clear()
+                            // Salvo, o banco volta a ser a verdade: solta a precedência
+                            // dos toques para o recarregamento abaixo valer.
+                            tocados.clear()
                             vm.carregar(cid, data) // recarrega já com o que foi salvo
                         }
                     },
