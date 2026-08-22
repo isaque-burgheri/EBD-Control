@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ebd.controle.data.Classe
 import com.ebd.controle.ui.ClassesViewModel
@@ -18,7 +19,7 @@ import com.ebd.controle.ui.ClassesViewModel
 @Composable
 fun ClassesScreen() {
     val vm: ClassesViewModel = viewModel()
-    val classes by vm.classes.collectAsState()
+    val classes by vm.classes.collectAsStateWithLifecycle()
     var editando by remember { mutableStateOf<Classe?>(null) }
     var mostrarForm by remember { mutableStateOf(false) }
 

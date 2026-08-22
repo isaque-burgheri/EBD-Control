@@ -95,6 +95,14 @@ interface PresencaDao {
     @Query("SELECT * FROM presencas WHERE chamadaId = :chamadaId AND IFNULL(deleted,0)=0")
     suspend fun listarPorChamada(chamadaId: Long): List<Presenca>
 
+    /**
+     * Uma consulta para várias chamadas de uma vez. Relatórios e ranket iteravam as
+     * chamadas do trimestre chamando `listarPorChamada` uma por uma — 4 classes x 13
+     * domingos são 52 idas ao banco em série.
+     */
+    @Query("SELECT * FROM presencas WHERE chamadaId IN (:chamadaIds) AND IFNULL(deleted,0)=0")
+    suspend fun listarPorChamadas(chamadaIds: List<Long>): List<Presenca>
+
     @Query("SELECT COUNT(*) FROM presencas WHERE chamadaId = :chamadaId AND presente = 1 AND IFNULL(deleted,0)=0")
     suspend fun contarPresentes(chamadaId: Long): Int
 
@@ -111,62 +119,23 @@ interface PresencaDao {
     @Query("DELETE FROM presencas") suspend fun deletarTudo()
 }
 
-@Dao
-interface FinanceiroDao {
-    @Query("SELECT * FROM financeiro WHERE IFNULL(deleted,0)=0 ORDER BY data DESC")
-    fun observarTodos(): Flow<List<Financeiro>>
 
-    @Query("SELECT * FROM financeiro WHERE IFNULL(deleted,0)=0 ORDER BY data DESC")
-    suspend fun listarTodos(): List<Financeiro>
 
-    @Query("SELECT * FROM financeiro WHERE chamadaId = :chamadaId AND IFNULL(deleted,0)=0 LIMIT 1")
-    suspend fun buscarPorChamada(chamadaId: Long): Financeiro?
-
-    @Query("SELECT * FROM financeiro") suspend fun todosIncl(): List<Financeiro>
-    @Query("SELECT * FROM financeiro WHERE uid = :uid LIMIT 1") suspend fun porUid(uid: String): Financeiro?
-
-    @Insert suspend fun inserir(f: Financeiro): Long
-    @Update suspend fun atualizar(f: Financeiro)
-    @Delete suspend fun deletar(f: Financeiro)
-    @Query("DELETE FROM financeiro") suspend fun deletarTudo()
-}
 
 @Dao
-interface RevistaPrecoDao {
-    @Query("SELECT * FROM revistas_precos WHERE IFNULL(deleted,0)=0 ORDER BY categoria")
-    fun observarTodos(): Flow<List<RevistaPreco>>
+interface RevistaAlunoDao {
+    @Query("SELECT * FROM revistas_alunos WHERE IFNULL(deleted,0)=0")
+    fun observarTodas(): Flow<List<RevistaAluno>>
 
-    @Query("SELECT * FROM revistas_precos WHERE IFNULL(deleted,0)=0 ORDER BY categoria")
-    suspend fun listarTodos(): List<RevistaPreco>
+    @Query("SELECT * FROM revistas_alunos WHERE ano = :ano AND trimestre = :trimestre AND IFNULL(deleted,0)=0")
+    suspend fun listarDoTrimestre(ano: Int, trimestre: Int): List<RevistaAluno>
 
-    @Query("SELECT COUNT(*) FROM revistas_precos WHERE IFNULL(deleted,0)=0")
-    suspend fun contar(): Int
+    @Query("SELECT * FROM revistas_alunos") suspend fun todosIncl(): List<RevistaAluno>
+    @Query("SELECT * FROM revistas_alunos WHERE uid = :uid LIMIT 1") suspend fun porUid(uid: String): RevistaAluno?
 
-    @Query("SELECT * FROM revistas_precos") suspend fun todosIncl(): List<RevistaPreco>
-    @Query("SELECT * FROM revistas_precos WHERE uid = :uid LIMIT 1") suspend fun porUid(uid: String): RevistaPreco?
-
-    @Insert suspend fun inserir(r: RevistaPreco): Long
-    @Update suspend fun atualizar(r: RevistaPreco)
-    @Query("DELETE FROM revistas_precos") suspend fun deletarTudo()
-}
-
-@Dao
-interface RevistaEntregaDao {
-    @Query("SELECT * FROM revistas_entregas WHERE IFNULL(deleted,0)=0")
-    fun observarTodas(): Flow<List<RevistaEntrega>>
-
-    @Query("SELECT * FROM revistas_entregas WHERE ano = :ano AND trimestre = :trim AND IFNULL(deleted,0)=0")
-    suspend fun listarPorTrimestre(ano: Int, trim: Int): List<RevistaEntrega>
-
-    @Query("SELECT * FROM revistas_entregas WHERE alunoId = :alunoId AND ano = :ano AND trimestre = :trim AND IFNULL(deleted,0)=0 LIMIT 1")
-    suspend fun buscar(alunoId: Long, ano: Int, trim: Int): RevistaEntrega?
-
-    @Query("SELECT * FROM revistas_entregas") suspend fun todosIncl(): List<RevistaEntrega>
-    @Query("SELECT * FROM revistas_entregas WHERE uid = :uid LIMIT 1") suspend fun porUid(uid: String): RevistaEntrega?
-
-    @Insert suspend fun inserir(r: RevistaEntrega): Long
-    @Update suspend fun atualizar(r: RevistaEntrega)
-    @Query("DELETE FROM revistas_entregas") suspend fun deletarTudo()
+    @Insert suspend fun inserir(r: RevistaAluno): Long
+    @Update suspend fun atualizar(r: RevistaAluno)
+    @Query("DELETE FROM revistas_alunos") suspend fun deletarTudo()
 }
 
 @Dao

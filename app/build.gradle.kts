@@ -15,8 +15,8 @@ android {
         targetSdk = 35
         // versionCode: número que o Android usa para reconhecer atualização — sempre
         // incrementar a cada APK distribuído. versionName: o que o humano lê.
-        versionCode = 2
-        versionName = "3.1"
+        versionCode = 3
+        versionName = "3.2"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -48,6 +48,9 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+    // collectAsStateWithLifecycle: para a coleta pausar no onStop em vez de
+    // manter os Flows do Room ativos com o app em segundo plano.
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
     implementation("androidx.activity:activity-compose:1.9.3")
 
     implementation(platform("androidx.compose:compose-bom:2024.10.01"))

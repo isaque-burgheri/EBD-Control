@@ -45,7 +45,6 @@ data class Chamada(
     val data: Long,
     val licao: Int = 0,
     val oferta: Double = 0.0,
-    val dizimos: Double = 0.0,
     val visitantes: Int = 0,
     val uid: String? = null,
     val updatedAt: Long? = null,
@@ -65,52 +64,21 @@ data class Presenca(
     val deleted: Boolean? = null
 )
 
-@Entity(tableName = "financeiro")
-data class Financeiro(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val data: Long,
-    val tipo: String,
-    val categoria: String,
-    val valor: Double,
-    val descricao: String = "",
-    val chamadaId: Long? = null,
-    val uid: String? = null,
-    val updatedAt: Long? = null,
-    val deleted: Boolean? = null
-)
-
 /**
- * Tabela de preços das revistas por categoria (ex.: "Adultos", "Jovens").
- * O preço é editável na tela; a categoria física é o que entra na descrição
- * do lançamento financeiro. Revista digital (PDF) é sempre gratuita.
+ * Situação da revista de um aluno num trimestre: se recebeu e se pagou.
+ *
+ * Substitui o par preços + entregas, que carregava categoria e preço para alimentar a
+ * tela de Finanças — removida. Uma linha por aluno por trimestre; o uid determinístico
+ * ("alunoUid:ano:trimestre") impede duplicata na sincronização.
  */
-@Entity(tableName = "revistas_precos")
-data class RevistaPreco(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val categoria: String,
-    val preco: Double = 0.0,
-    val uid: String? = null,
-    val updatedAt: Long? = null,
-    val deleted: Boolean? = null
-)
-
-/**
- * Entrega de revista a um aluno num trimestre.
- *  - tipo: "FISICA" (gera despesa) ou "DIGITAL" (gratuita)
- *  - categoria/preco: copiados no momento da entrega (histórico fica fixo
- *    mesmo que o preço de tabela mude depois)
- *  - ano/trimestre: identificam o trimestre EBD (1..4)
- * Um registro por aluno por trimestre (uid determinístico evita duplicar).
- */
-@Entity(tableName = "revistas_entregas")
-data class RevistaEntrega(
+@Entity(tableName = "revistas_alunos")
+data class RevistaAluno(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val alunoId: Long,
     val ano: Int,
     val trimestre: Int,
-    val tipo: String = "FISICA",
-    val categoria: String = "",
-    val preco: Double = 0.0,
+    val temRevista: Boolean = false,
+    val pago: Boolean = false,
     val uid: String? = null,
     val updatedAt: Long? = null,
     val deleted: Boolean? = null

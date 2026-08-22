@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ebd.controle.data.formatarData
 import com.ebd.controle.ui.AniversarianteUi
@@ -26,7 +27,7 @@ import com.ebd.controle.ui.theme.Vermelho
 @Composable
 fun AniversariantesScreen() {
     val vm: AniversariantesViewModel = viewModel()
-    val lista by vm.lista.collectAsState()
+    val lista by vm.lista.collectAsStateWithLifecycle()
 
     if (lista.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {

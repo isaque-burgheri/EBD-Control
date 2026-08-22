@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ebd.controle.data.Visitante
 import com.ebd.controle.data.formatarData
@@ -36,8 +37,8 @@ import com.ebd.controle.ui.theme.Verde
 @Composable
 fun VisitantesScreen() {
     val vm: VisitantesViewModel = viewModel()
-    val lista by vm.lista.collectAsState()
-    val classes by vm.classes.collectAsState()
+    val lista by vm.lista.collectAsStateWithLifecycle()
+    val classes by vm.classes.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
 
     var mostrarAdd by remember { mutableStateOf(false) }
@@ -105,9 +106,14 @@ fun VisitantesScreen() {
         )
     }
 
+    // Fecha o diálogo por efeito, não escrevendo estado no corpo do composable —
+    // mutação durante a composição gera recomposição extra e é frágil.
+    LaunchedEffect(classes.isEmpty()) {
+        if (classes.isEmpty()) converter = null
+    }
+
     converter?.let { v ->
-        if (classes.isEmpty()) { converter = null }
-        else ConverterDialog(
+        if (classes.isNotEmpty()) ConverterDialog(
             nome = v.nome,
             classesNomes = classes.map { it.nome },
             onConfirmar = { idx ->

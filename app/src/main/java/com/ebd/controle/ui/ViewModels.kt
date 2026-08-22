@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ebd.controle.EBDApp
 import com.ebd.controle.data.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.time.YearMonth
@@ -92,12 +93,11 @@ data class RelTrimUi(
     val totalRev     get() = colunas.sumOf { it.revistas }
     val totalOferta  get() = colunas.sumOf { it.oferta }
 }
-data class ResumoMes(val entradas: Double, val saidas: Double) { val saldo get() = entradas - saidas }
 data class VisitanteUi(val visitante: Visitante, val classeNome: String)
 data class DashboardState(
     val totalClasses: Int = 0, val totalAlunos: Int = 0,
     val ultimaData: Long? = null, val ultimaPct: Float = 0f,
-    val saldoMes: Double = 0.0, val aniversariantes: List<AniversarianteUi> = emptyList(),
+    val ofertasMes: Double = 0.0, val aniversariantes: List<AniversarianteUi> = emptyList(),
     val visitantesPendentes: Int = 0
 )
 
@@ -116,6 +116,28 @@ class AlunosViewModel(app: Application) : AndroidViewModel(app) {
     val alunos = repo.alunos.stateInDefault(viewModelScope, emptyList())
     fun salvar(a: Aluno) = viewModelScope.launch { repo.salvarAluno(a) }
     fun deletar(a: Aluno) = viewModelScope.launch { repo.deletarAluno(a) }
+
+    /* --- Revista do trimestre (substitui a tela de Revistas) --- */
+
+    private val _trimestre = MutableStateFlow(Trimestre.atual())
+    val trimestre: StateFlow<Trimestre> = _trimestre.asStateFlow()
+
+    /** alunoId -> situação no trimestre selecionado. */
+    val revistas: StateFlow<Map<Long, RevistaAluno>> =
+        combine(repo.revistasAlunos, _trimestre) { todas, t ->
+            todas.filter { it.ano == t.ano && it.trimestre == t.numero }
+                .associateBy { it.alunoId }
+        }.stateInDefault(viewModelScope, emptyMap())
+
+    fun trimestreAnterior() { _trimestre.value = _trimestre.value.anterior() }
+    fun trimestreProximo() { _trimestre.value = _trimestre.value.proximo() }
+
+    fun marcarRevista(alunoId: Long, temRevista: Boolean, pago: Boolean) =
+        viewModelScope.launch {
+            val t = _trimestre.value
+            // Pagar sem ter a revista não faz sentido: marcar "pago" implica "tem".
+            repo.marcarRevista(alunoId, t.ano, t.numero, temRevista || pago, pago)
+        }
 }
 
 /* ----------------------- Chamada ----------------------- */
@@ -200,7 +222,9 @@ class RelatoriosViewModel(app: Application) : AndroidViewModel(app) {
     fun selecionarClasse(id: Long?) { _classeId.value = id; recarregar() }
 
     /** Recalcula a lista de aulas e o relatório do trimestre conforme filtros. */
-    private fun recarregar() = viewModelScope.launch {
+    // Dispatchers.Default: o agrupamento e a ordenação abaixo somam centenas de ms
+    // num trimestre cheio, e viewModelScope roda em Main por padrão.
+    private fun recarregar() = viewModelScope.launch(Dispatchers.Default) {
         val t = _trimestre.value
         val filtroClasse = _classeId.value
         val noTrim: (Long) -> Boolean = { it in t.inicioMillis() until t.fimExclusivoMillis() }
@@ -220,10 +244,12 @@ class RelatoriosViewModel(app: Application) : AndroidViewModel(app) {
             .filter { noTrim(it.data) }
             .filter { filtroClasse == null || it.classeId == filtroClasse }
 
-        // Pré-calcula presenças/bíblias/revistas por chamada
+        // Pré-calcula presenças/bíblias/revistas por chamada. Uma consulta para o
+        // trimestre inteiro: antes era uma por chamada, em série.
         data class Agg(val pres: Int, val bibl: Int, val rev: Int)
+        val presencasPorChamada = repo.presencasDasChamadas(chamadasTrim.map { it.id })
         val porChamada: Map<Long, Agg> = chamadasTrim.associate { ch ->
-            val presencas = repo.presencasDaChamada(ch.id)
+            val presencas = presencasPorChamada[ch.id].orEmpty()
             ch.id to Agg(
                 pres = presencas.count { it.presente },
                 bibl = presencas.count { it.biblia && it.presente },
@@ -289,15 +315,25 @@ class RelatoriosViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Carrega o relatório detalhado de UMA aula (data específica), respeitando o filtro de classe. */
-    fun abrirRelatorioDia(data: Long) = viewModelScope.launch {
+    fun abrirRelatorioDia(data: Long) = viewModelScope.launch(Dispatchers.Default) {
         val filtroClasse = _classeId.value
         val nomes = repo.listarClasses().associate { it.id to it.nome }
         val chamadasDoDia = repo.listarTodasChamadas()
             .filter { it.data == data }
             .filter { filtroClasse == null || it.classeId == filtroClasse }
 
+        // Visitantes contados da TABELA visitantes, igual ao relatório do trimestre.
+        // Antes esta tela usava o contador `Chamada.visitantes`, acumulado na tela de
+        // Chamada, e as duas telas mostravam números diferentes para o mesmo domingo.
+        val visitantesDoDia = repo.listarVisitantes()
+            .filter { it.data == data }
+            .filter { filtroClasse == null || it.classeId == filtroClasse }
+            .groupingBy { it.classeId }
+            .eachCount()
+
+        val presencasPorChamada = repo.presencasDasChamadas(chamadasDoDia.map { it.id })
         val linhas = chamadasDoDia.map { ch ->
-            val presencas = repo.presencasDaChamada(ch.id)
+            val presencas = presencasPorChamada[ch.id].orEmpty()
             val matric = presencas.size
             val pres = presencas.count { it.presente }
             val bibl = presencas.count { it.biblia && it.presente }
@@ -308,7 +344,7 @@ class RelatoriosViewModel(app: Application) : AndroidViewModel(app) {
                 matriculados = matric,
                 presentes = pres,
                 ausentes = matric - pres,
-                visitantes = ch.visitantes,
+                visitantes = visitantesDoDia[ch.classeId] ?: 0,
                 biblias = bibl,
                 revistas = rev,
                 oferta = ch.oferta,
@@ -319,80 +355,6 @@ class RelatoriosViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun fecharRelatorioDia() { _relDia.value = null }
-}
-
-/* ----------------------- Finanças ----------------------- */
-class FinancasViewModel(app: Application) : AndroidViewModel(app) {
-    private val repo = app.repo()
-    val lancamentos = repo.financeiro.stateInDefault(viewModelScope, emptyList())
-    val resumoMes = repo.financeiro.map { list ->
-        val mes = YearMonth.now()
-        val doMes = list.filter { YearMonth.from(it.data.toLocalDate()) == mes }
-        ResumoMes(
-            doMes.filter { it.tipo == "ENTRADA" }.sumOf { it.valor },
-            doMes.filter { it.tipo == "SAIDA" }.sumOf { it.valor }
-        )
-    }.stateInDefault(viewModelScope, ResumoMes(0.0, 0.0))
-
-    fun salvar(f: Financeiro) = viewModelScope.launch { repo.salvarFinanceiro(f) }
-    fun deletar(f: Financeiro) = viewModelScope.launch { repo.deletarFinanceiro(f) }
-}
-
-/* ----------------------- Revistas ----------------------- */
-/** Linha da tela de revistas: um aluno + a entrega atual (se houver) no trimestre. */
-data class RevistaAlunoUi(
-    val aluno: Aluno,
-    val classeNome: String,
-    val entrega: RevistaEntrega?
-)
-
-class RevistasViewModel(app: Application) : AndroidViewModel(app) {
-    private val repo = app.repo()
-
-    val precos = repo.revistasPrecos.stateInDefault(viewModelScope, emptyList())
-
-    /** Trimestre selecionado (inicia no atual). */
-    private val _trimestre = MutableStateFlow(Trimestre.atual())
-    val trimestre: StateFlow<Trimestre> = _trimestre.asStateFlow()
-
-    /** Filtro de classe; null = todas. */
-    private val _classeId = MutableStateFlow<Long?>(null)
-    val classeId: StateFlow<Long?> = _classeId.asStateFlow()
-
-    val classes = repo.classes.stateInDefault(viewModelScope, emptyList())
-
-    private val _linhas = MutableStateFlow<List<RevistaAlunoUi>>(emptyList())
-    val linhas: StateFlow<List<RevistaAlunoUi>> = _linhas.asStateFlow()
-
-    init { recarregar() }
-
-    fun setTrimestre(t: Trimestre) { _trimestre.value = t; recarregar() }
-    fun setClasse(id: Long?) { _classeId.value = id; recarregar() }
-
-    fun recarregar() = viewModelScope.launch {
-        val t = _trimestre.value
-        val alunos = repo.listarTodosAlunos().filter { it.ativo }
-        val nomes = repo.listarClasses().associate { it.id to it.nome }
-        val entregas = repo.entregasDoTrimestre(t.ano, t.numero).associateBy { it.alunoId }
-        val filtro = _classeId.value
-        _linhas.value = alunos
-            .filter { filtro == null || it.classeId == filtro }
-            .map { RevistaAlunoUi(it, nomes[it.classeId] ?: "", entregas[it.id]) }
-            .sortedWith(compareBy({ it.classeNome }, { it.aluno.nome }))
-    }
-
-    /** tipo = "FISICA" | "DIGITAL" | null (sem revista). */
-    fun definir(aluno: Aluno, tipo: String?, categoria: String, preco: Double) =
-        viewModelScope.launch {
-            repo.definirRevistaAluno(
-                alunoId = aluno.id, ano = _trimestre.value.ano, trim = _trimestre.value.numero,
-                tipo = tipo, categoria = categoria, preco = preco, nomeAluno = aluno.nome
-            )
-            recarregar()
-        }
-
-    fun salvarPreco(r: RevistaPreco) = viewModelScope.launch { repo.salvarPrecoRevista(r); recarregar() }
-    fun deletarPreco(r: RevistaPreco) = viewModelScope.launch { repo.deletarPrecoRevista(r) }
 }
 
 /* ----------------------- Pontuação ----------------------- */
@@ -480,7 +442,7 @@ class PontuacaoViewModel(app: Application) : AndroidViewModel(app) {
     fun setClasseRanking(id: Long?) { _classeRankingId.value = id; recarregarRanking() }
 
     /** Soma os pontos do período por aluno e conta faltas (para desempate). */
-    fun recarregarRanking() = viewModelScope.launch {
+    fun recarregarRanking() = viewModelScope.launch(Dispatchers.Default) {
         val t = _trimestre.value
         val ini = t.inicioMillis(); val fim = t.fimExclusivoMillis()
         val filtro = _classeRankingId.value
@@ -495,11 +457,8 @@ class PontuacaoViewModel(app: Application) : AndroidViewModel(app) {
         // Faltas = chamadas da classe no período em que o aluno constava ausente.
         val chamadas = repo.listarTodasChamadas().filter { it.data in ini until fim }
         val faltasPorAluno = HashMap<Long, Int>()
-        for (ch in chamadas) {
-            val presencas = repo.presencasDaChamada(ch.id)
-            presencas.forEach { p ->
-                if (!p.presente) faltasPorAluno[p.alunoId] = (faltasPorAluno[p.alunoId] ?: 0) + 1
-            }
+        repo.presencasDasChamadas(chamadas.map { it.id }).values.flatten().forEach { p ->
+            if (!p.presente) faltasPorAluno[p.alunoId] = (faltasPorAluno[p.alunoId] ?: 0) + 1
         }
 
         _ranking.value = alunos.map { a ->
@@ -537,16 +496,18 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = app.repo()
 
     val state: StateFlow<DashboardState> = combine(
-        repo.classes, repo.alunos, repo.chamadas, repo.financeiro, repo.visitantes
-    ) { classes, alunos, chamadas, fin, visit ->
+        repo.classes, repo.alunos, repo.chamadas, repo.visitantes
+    ) { classes, alunos, chamadas, visit ->
         val ultima = chamadas.firstOrNull()
-        
-        // Cálculo de saldo seguro
+
+        // Ofertas do mês, somadas das chamadas. Antes era o saldo da tabela
+        // `financeiro`, que saiu com a tela de Finanças; a oferta lançada na chamada é
+        // o único dinheiro que o app registra de fato.
         val mesAtual = try { YearMonth.now() } catch (e: Exception) { null }
-        val saldo = if (mesAtual != null) {
-            fin.filter { 
+        val ofertas = if (mesAtual != null) {
+            chamadas.filter {
                 try { YearMonth.from(it.data.toLocalDate()) == mesAtual } catch (e: Exception) { false }
-            }.sumOf { if (it.tipo == "ENTRADA") it.valor else -it.valor }
+            }.sumOf { it.oferta }
         } else 0.0
 
         val nomesClasse = classes.associate { it.id to it.nome }
@@ -563,7 +524,7 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             totalAlunos = alunos.size,
             ultimaData = ultima?.data,
             ultimaPct = 0f,
-            saldoMes = saldo,
+            ofertasMes = ofertas,
             aniversariantes = aniv,
             visitantesPendentes = visit.count { !it.convertido }
         )

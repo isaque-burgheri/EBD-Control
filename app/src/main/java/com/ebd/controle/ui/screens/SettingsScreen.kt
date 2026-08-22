@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
@@ -16,10 +18,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.ebd.controle.BuildConfig
@@ -33,7 +39,7 @@ fun SettingsScreen(nav: NavController) {
     // Usamos o ComponentActivity como dono do ViewModel para ser o MESMO do MainActivity
     val activity = LocalContext.current as ComponentActivity
     val settingsVm: SettingsViewModel = viewModel(activity)
-    val isDark by settingsVm.isDarkMode.collectAsState()
+    val isDark by settingsVm.isDarkMode.collectAsStateWithLifecycle()
 
     Column(
         Modifier
@@ -73,20 +79,35 @@ fun SettingsScreen(nav: NavController) {
 
         // Seção Dados
         SettingsSection(title = "Nuvem e Backup", icon = Icons.Filled.Storage) {
-            val syncUrl by settingsVm.syncUrl.collectAsState()
-            val autoSync by settingsVm.autoSync.collectAsState()
-            val syncStatus by settingsVm.syncStatus.collectAsState()
-            val ultimaSync by settingsVm.ultimaSync.collectAsState()
+            val syncUrl by settingsVm.syncUrl.collectAsStateWithLifecycle()
+            val autoSync by settingsVm.autoSync.collectAsStateWithLifecycle()
+            val syncStatus by settingsVm.syncStatus.collectAsStateWithLifecycle()
+            val ultimaSync by settingsVm.ultimaSync.collectAsStateWithLifecycle()
             val sincronizando = syncStatus == SyncStatus.SINCRONIZANDO
             val scope = rememberCoroutineScope()
             val snackbar = remember { SnackbarHostState() }
 
+            // O texto vive local e só é persistido ao sair do campo: ligado direto ao
+            // ViewModel, colar uma URL de ~90 caracteres enfileirava ~90 gravações em
+            // disco, uma por tecla.
+            var urlEditada by remember(syncUrl) { mutableStateOf(syncUrl) }
             OutlinedTextField(
-                value = syncUrl,
-                onValueChange = { settingsVm.setSyncUrl(it) },
+                value = urlEditada,
+                onValueChange = { urlEditada = it },
                 label = { Text("URL do Google Apps Script") },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { foco ->
+                        if (!foco.isFocused && urlEditada.trim() != syncUrl) {
+                            settingsVm.setSyncUrl(urlEditada)
+                        }
+                    },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(onDone = { settingsVm.setSyncUrl(urlEditada) }),
                 placeholder = { Text("https://script.google.com/macros/s/...") }
             )
 
@@ -129,12 +150,13 @@ fun SettingsScreen(nav: NavController) {
             // Sincronização manual sob demanda (a automática já cuida do resto)
             Button(
                 onClick = {
+                    settingsVm.setSyncUrl(urlEditada)
                     settingsVm.sincronizar { _, msg ->
                         scope.launch { snackbar.showSnackbar(msg) }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !sincronizando && syncUrl.isNotBlank(),
+                enabled = !sincronizando && urlEditada.isNotBlank(),
                 shape = RoundedCornerShape(8.dp)
             ) {
                 if (sincronizando) {

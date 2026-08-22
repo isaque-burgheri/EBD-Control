@@ -249,33 +249,49 @@ Três pontos indexavam a lista de classes direto, e ela pode encolher por sync c
 aberto: `MembrosScreen` (`classes.first()` e `classeIds[classeIdx]`) e `VisitantesScreen`
 (`classes[idx]`). **Corrigidos** com `getOrNull` / guarda de lista vazia.
 
-### `collectAsState()` em vez de `collectAsStateWithLifecycle()` — em todas as telas
+### `collectAsState()` em vez de `collectAsStateWithLifecycle()` — corrigido
 
-A dependência `androidx.lifecycle:lifecycle-runtime-compose` nem está no Gradle. Como
-`collectAsState()` não pausa no `onStop`, os Flows do Room seguem ativos com o app em
-segundo plano e as telas recompõem a cada sync, refazendo todas as agregações fora da tela.
-O `SharingStarted.WhileSubscribed(5_000)` dos ViewModels fica sem efeito prático. Uma linha
-no Gradle destrava a correção.
+A dependência `androidx.lifecycle:lifecycle-runtime-compose` nem estava no Gradle. Como
+`collectAsState()` não pausa no `onStop`, os Flows do Room seguiam ativos com o app em
+segundo plano e as telas recompunham a cada sync, refazendo todas as agregações fora da
+tela — o `SharingStarted.WhileSubscribed(5_000)` dos ViewModels ficava sem efeito prático.
 
-### Trabalho pesado na thread principal
+Dependência adicionada e as **38 chamadas** trocadas nas 12 telas mais a `MainActivity`.
 
-`RelatoriosViewModel.recarregar()` e `PontuacaoViewModel.recarregarRanking()` rodam em
-`viewModelScope` (Main) e fazem um **N+1 de queries em série** — uma ida ao banco por
-chamada. Com 4 classes × 13 domingos são 52 consultas sequenciais, mais `groupBy` e
-`sortedWith`, tudo na UI. Abrir Relatórios congela a tela.
+### Trabalho pesado na thread principal — corrigido
 
-Além disso, várias telas ordenam e agregam no corpo do composable sem `remember`:
-`FinancasScreen` reagrupa todo o histórico financeiro a cada recomposição;
-`PontuacaoScreen` faz ~100 varreduras de lista a cada toque em um chip.
+`RelatoriosViewModel.recarregar()`, `abrirRelatorioDia()` e
+`PontuacaoViewModel.recarregarRanking()` rodavam em `viewModelScope` (Main) e faziam um
+**N+1 de queries em série** — uma ida ao banco por chamada. Com 4 classes × 13 domingos são
+52 consultas sequenciais, mais `groupBy` e `sortedWith`, tudo na UI. Abrir Relatórios
+congelava a tela.
 
-### Menores
+- `PresencaDao.listarPorChamadas(ids)` novo, com `Repository.presencasDasChamadas()`
+  devolvendo o resultado já agrupado: **uma consulta** no lugar de 52.
+- As três funções passaram a `viewModelScope.launch(Dispatchers.Default)`.
 
-- `SettingsScreen` grava em disco **a cada tecla** digitada na URL do Apps Script (~90
-  escritas ao colar uma URL).
-- `VisitantesScreen` muta estado durante a composição (`converter = null` no corpo).
-- `RelatoriosViewModel` conta visitantes de duas fontes diferentes: o relatório do dia usa
-  `Chamada.visitantes`, o do trimestre conta linhas da tabela `Visitante`. Os dois mostram
-  números diferentes para o mesmo domingo.
+> Ainda em aberto: várias telas ordenam e agregam no corpo do composable sem `remember`.
+> `FinancasScreen` reagrupa todo o histórico financeiro a cada recomposição e
+> `PontuacaoScreen` faz ~100 varreduras de lista a cada toque em um chip. Com a coleta
+> agora ciente do ciclo de vida, isso deixou de acontecer com a tela em segundo plano —
+> mas continua valendo envolver em `remember`.
+
+### Contagem de visitantes divergente — corrigido
+
+O relatório do dia usava o contador `Chamada.visitantes`, acumulado na tela de Chamada,
+enquanto o do trimestre contava linhas da tabela `visitantes`. As duas telas mostravam
+números diferentes para o mesmo domingo. Agora as duas leem a tabela.
+
+### Menores — corrigidos
+
+- `SettingsScreen` gravava em disco **a cada tecla** digitada na URL do Apps Script (~90
+  escritas ao colar uma URL). O texto passou a viver em estado local, persistido ao sair do
+  campo ou no "Done" do teclado.
+- `VisitantesScreen` mutava estado durante a composição (`converter = null` no corpo) —
+  virou `LaunchedEffect`.
+- `RevistasScreen`: `remember` sem chave no diálogo de entrega. Se ele abrisse antes de o
+  Room emitir os preços, o índice ficava preso em 0 e salvava a categoria errada. Chaveado
+  por `linha` e `categorias`.
 - Escopo de corrotina órfão em `EBDApp` lançando uma corrotina vazia. **Removido.**
 
 ---
@@ -344,20 +360,38 @@ que a página precisa.
 
 ---
 
-## Decisões de escopo (21/08)
+## Enxugamento do escopo — feito (Room v9, app 3.2)
 
-- **Finanças será removida.** A tela é ilustrativa e não está em uso. Sai a tela, a
-  entidade `Financeiro` e a aba da planilha.
-- **`Chamada.dizimos` sai junto.** O app nunca vai gerenciar dízimo — decisão do
-  responsável, 21/08. Hoje o campo existe na entidade, viaja pelo sync e entra no backup,
-  mas **não há nenhum campo na interface que escreva nele** (`dizimos` não aparece em
-  nenhum arquivo de `ui/`). Remover: a coluna do Room, o campo em `Entities.kt`, as
-  referências em `Repository.kt` e `Backup.kt`, e a coluna `Dízimos (R$)` do `SCHEMA` do
-  Apps Script — que foi criada nesta sessão e nunca chegou a ser usada.
-  > Enquanto não sair, é inofensivo: o campo fica em 0,0 e ninguém o vê.
-- **Revistas vira dois campos no membro, por trimestre.** Saem a tela de Revistas e as
-  tabelas `revistas_precos` / `revistas_entregas`. No lugar entram "tem revista" e "pagou",
-  marcáveis por trimestre na área de Membros.
+Decisão do responsável em 21/08, executada em seguida. Todas as três mudanças são
+**quebra de contrato de sincronização**: app e Apps Script precisam subir juntos.
+
+- **Finanças removida.** A tela era ilustrativa e nunca entrou em uso. Saíram a tela, a
+  entidade `Financeiro`, o DAO, o `FinancasViewModel` e a aba da planilha. A oferta
+  continua onde sempre esteve de verdade, em `chamadas.oferta` — a tabela `financeiro` só
+  guardava uma cópia derivada dela, e era essa cópia que duplicava a receita quando o
+  vínculo chamada→lançamento se perdia (item 5).
+- **`chamadas.dizimos` removido.** O app não gerencia dízimo, e não havia nem campo na
+  interface que escrevesse nele. Tirar a coluna exigiu **recriar a tabela**: o SQLite do
+  minSdk 26 não tem `ALTER TABLE DROP COLUMN` (só a partir do 3.35 / API 34).
+- **Revistas virou situação por trimestre.** `revistas_precos` e `revistas_entregas` deram
+  lugar a `revistas_alunos`, com apenas `temRevista` e `pago`. Categoria e preço existiam
+  para alimentar o financeiro, que se foi. As entregas já registradas viram
+  `temRevista = 1`; não há como inferir `pago` do que existia, porque o preço gravado era o
+  de tabela e não um pagamento.
+
+**Onde a marcação vive agora:** na tela de Membros, dois chips por aluno ("Revista" e
+"Pago") mais um seletor de trimestre no topo com o placar da classe filtrada. Marcar "Pago"
+implica "tem revista" — pagar pelo que não recebeu não é um estado válido.
+
+**Barra inferior:** "Finanças" era um dos cinco itens. **Pontuação** entrou no lugar — é a
+tela usada toda semana e antes só se chegava nela por atalho no Dashboard.
+
+**Na planilha:** rode `MIGRAR_PARA_V3`. As abas `financeiro`, `revistasPrecos` e
+`revistasEntregas` são **renomeadas** para `... (arquivada)`, não apagadas — o histórico
+continua consultável, o script só para de tocar nelas.
+
+> O formato de backup subiu para a **versão 4**. Arquivos v3 e anteriores continuam
+> restaurando: os campos que saíram são simplesmente ignorados.
 
 ### Instalação limpa não semeava os critérios — corrigido
 
@@ -392,13 +426,14 @@ abra o projeto no Android Studio e faça Build → Make Project.
 ## Ordem de ataque
 
 1. **Compilar no Android Studio** e corrigir o que aparecer. Nada abaixo faz sentido antes.
-2. **Testar o backup na mão:** exportar, conferir que o `.json` traz as 10 tabelas com
-   `uid`, restaurar num aparelho limpo e confirmar que pontuação e ranking voltam
-   idênticos. É a correção mais extensa da sessão e a que mais precisa de olho humano.
+2. **Testar a migração v9 e o backup na mão:** instalar por cima com dados reais e
+   conferir que a chamada, a pontuação e as revistas do trimestre sobreviveram; exportar o
+   `.json` e confirmar `"versao": 4` com `uid` em cada registro; restaurar e comparar. São
+   as duas mudanças mais extensas, e as que mais precisam de olho humano.
 3. Testes de round-trip de sincronização e de backup — teriam pegado os dízimos sozinhos.
-4. Remover Finanças e converter Revistas em campos do membro (migração v9).
-5. Publicar o ranking via GitHub Pages + Actions (já montado em
+4. Publicar o ranking via GitHub Pages + Actions (já montado em
    [`.github/workflows/publicar-ranking.yml`](../.github/workflows/publicar-ranking.yml) e
    [`site/index.html`](../site/index.html); falta configurar o segredo e ligar o Pages).
-6. `lifecycle-runtime-compose` + `collectAsStateWithLifecycle`, tirar as agregações da
-   thread principal, limpar código morto, atualizar toolchain.
+5. Envolver em `remember` as agregações que ainda rodam no corpo do composable
+   (`PontuacaoScreen`), e atualizar a toolchain (AGP 8.7.3, Kotlin
+   2.0.21, Compose BOM 2024.10 — todos defasados).

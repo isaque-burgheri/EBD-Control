@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Backup local completo — as 10 tabelas, campo a campo, incluindo a identidade de
+ * Backup local completo — as 8 tabelas, campo a campo, incluindo a identidade de
  * sincronização (`uid`, `updatedAt`, `deleted`) e os ids originais.
  *
  * Duas decisões que valem explicação:
@@ -23,24 +23,23 @@ import org.json.JSONObject
  * exclusão precisa continuar se propagando depois da restauração.
  */
 
-const val VERSAO_BACKUP = 3
+const val VERSAO_BACKUP = 4
 
-/** As 10 tabelas do app, em ordem segura para gravação (pais antes dos filhos). */
+/** As 8 tabelas do app, em ordem segura para gravação (pais antes dos filhos). */
 data class DadosBackup(
     val classes: List<Classe> = emptyList(),
     val alunos: List<Aluno> = emptyList(),
     val chamadas: List<Chamada> = emptyList(),
     val presencas: List<Presenca> = emptyList(),
-    val financeiro: List<Financeiro> = emptyList(),
     val visitantes: List<Visitante> = emptyList(),
-    val revistasPrecos: List<RevistaPreco> = emptyList(),
-    val revistasEntregas: List<RevistaEntrega> = emptyList(),
+    val revistasAlunos: List<RevistaAluno> = emptyList(),
     val criterios: List<CriterioPontuacao> = emptyList(),
     val pontos: List<PontoLancamento> = emptyList()
 ) {
+    /** Total de registros — mostrado ao usuário depois de restaurar. */
     val total: Int
-        get() = classes.size + alunos.size + chamadas.size + presencas.size + financeiro.size +
-            visitantes.size + revistasPrecos.size + revistasEntregas.size + criterios.size + pontos.size
+        get() = classes.size + alunos.size + chamadas.size + presencas.size +
+            visitantes.size + revistasAlunos.size + criterios.size + pontos.size
 }
 
 /** Lançada quando o arquivo escolhido não é um backup válido. */
@@ -70,18 +69,12 @@ suspend fun exportarBackup(repo: Repository): String {
     root.put("chamadas", arr(d.chamadas) {
         obj(it.id, it.uid, it.updatedAt, it.deleted)
             .put("classeId", it.classeId).put("data", it.data).put("licao", it.licao)
-            .put("oferta", it.oferta).put("dizimos", it.dizimos).put("visitantes", it.visitantes)
+            .put("oferta", it.oferta).put("visitantes", it.visitantes)
     })
     root.put("presencas", arr(d.presencas) {
         obj(it.id, it.uid, it.updatedAt, it.deleted)
             .put("chamadaId", it.chamadaId).put("alunoId", it.alunoId)
             .put("presente", it.presente).put("biblia", it.biblia).put("revista", it.revista)
-    })
-    root.put("financeiro", arr(d.financeiro) {
-        obj(it.id, it.uid, it.updatedAt, it.deleted)
-            .put("data", it.data).put("tipo", it.tipo).put("categoria", it.categoria)
-            .put("valor", it.valor).put("descricao", it.descricao)
-            .put("chamadaId", it.chamadaId ?: JSONObject.NULL)
     })
     root.put("visitantes", arr(d.visitantes) {
         obj(it.id, it.uid, it.updatedAt, it.deleted)
@@ -89,14 +82,10 @@ suspend fun exportarBackup(repo: Repository): String {
             .put("classeId", it.classeId ?: JSONObject.NULL)
             .put("observacao", it.observacao).put("convertido", it.convertido)
     })
-    root.put("revistasPrecos", arr(d.revistasPrecos) {
-        obj(it.id, it.uid, it.updatedAt, it.deleted)
-            .put("categoria", it.categoria).put("preco", it.preco)
-    })
-    root.put("revistasEntregas", arr(d.revistasEntregas) {
+    root.put("revistasAlunos", arr(d.revistasAlunos) {
         obj(it.id, it.uid, it.updatedAt, it.deleted)
             .put("alunoId", it.alunoId).put("ano", it.ano).put("trimestre", it.trimestre)
-            .put("tipo", it.tipo).put("categoria", it.categoria).put("preco", it.preco)
+            .put("temRevista", it.temRevista).put("pago", it.pago)
     })
     root.put("criterios", arr(d.criterios) {
         obj(it.id, it.uid, it.updatedAt, it.deleted)
@@ -189,7 +178,7 @@ private fun lerDados(root: JSONObject) = DadosBackup(
     chamadas = mapa(root, "chamadas") {
         Chamada(id = id(it), classeId = it.getLong("classeId"), data = it.getLong("data"),
             licao = it.optInt("licao", 0), oferta = it.optDouble("oferta", 0.0),
-            dizimos = it.optDouble("dizimos", 0.0), visitantes = it.optInt("visitantes", 0),
+            visitantes = it.optInt("visitantes", 0),
             uid = uid(it), updatedAt = updatedAt(it), deleted = deleted(it))
     },
     presencas = mapa(root, "presencas") {
@@ -198,27 +187,16 @@ private fun lerDados(root: JSONObject) = DadosBackup(
             revista = it.optBoolean("revista", false),
             uid = uid(it), updatedAt = updatedAt(it), deleted = deleted(it))
     },
-    financeiro = mapa(root, "financeiro") {
-        Financeiro(id = id(it), data = it.getLong("data"), tipo = it.getString("tipo"),
-            categoria = it.optString("categoria", ""), valor = it.optDouble("valor", 0.0),
-            descricao = it.optString("descricao", ""), chamadaId = longOuNulo(it, "chamadaId"),
-            uid = uid(it), updatedAt = updatedAt(it), deleted = deleted(it))
-    },
     visitantes = mapa(root, "visitantes") {
         Visitante(id = id(it), nome = it.getString("nome"), telefone = it.optString("telefone", ""),
             data = it.getLong("data"), classeId = longOuNulo(it, "classeId"),
             observacao = it.optString("observacao", ""), convertido = it.optBoolean("convertido", false),
             uid = uid(it), updatedAt = updatedAt(it), deleted = deleted(it))
     },
-    revistasPrecos = mapa(root, "revistasPrecos") {
-        RevistaPreco(id = id(it), categoria = it.optString("categoria", ""),
-            preco = it.optDouble("preco", 0.0),
-            uid = uid(it), updatedAt = updatedAt(it), deleted = deleted(it))
-    },
-    revistasEntregas = mapa(root, "revistasEntregas") {
-        RevistaEntrega(id = id(it), alunoId = it.getLong("alunoId"), ano = it.optInt("ano", 0),
-            trimestre = it.optInt("trimestre", 0), tipo = it.optString("tipo", "FISICA"),
-            categoria = it.optString("categoria", ""), preco = it.optDouble("preco", 0.0),
+    revistasAlunos = mapa(root, "revistasAlunos") {
+        RevistaAluno(id = id(it), alunoId = it.getLong("alunoId"), ano = it.optInt("ano", 0),
+            trimestre = it.optInt("trimestre", 0),
+            temRevista = it.optBoolean("temRevista", false), pago = it.optBoolean("pago", false),
             uid = uid(it), updatedAt = updatedAt(it), deleted = deleted(it))
     },
     criterios = mapa(root, "criterios") {

@@ -15,9 +15,7 @@ class Repository(private val db: AppDatabase) {
     private val alunoDao = db.alunoDao()
     private val chamadaDao = db.chamadaDao()
     private val presencaDao = db.presencaDao()
-    private val financeiroDao = db.financeiroDao()
-    private val revistaPrecoDao = db.revistaPrecoDao()
-    private val revistaEntregaDao = db.revistaEntregaDao()
+    private val revistaAlunoDao = db.revistaAlunoDao()
     private val criterioDao = db.criterioPontuacaoDao()
     private val pontoDao = db.pontoLancamentoDao()
     private val visitanteDao = db.visitanteDao()
@@ -52,6 +50,11 @@ class Repository(private val db: AppDatabase) {
     suspend fun chamadasDaClasse(classeId: Long) = chamadaDao.listarPorClasse(classeId)
     suspend fun ultimaChamada() = chamadaDao.ultima()
     suspend fun presencasDaChamada(chamadaId: Long) = presencaDao.listarPorChamada(chamadaId)
+
+    /** Presenças de várias chamadas em uma consulta, agrupadas por chamada. */
+    suspend fun presencasDasChamadas(chamadaIds: List<Long>): Map<Long, List<Presenca>> =
+        if (chamadaIds.isEmpty()) emptyMap()
+        else presencaDao.listarPorChamadas(chamadaIds).groupBy { it.chamadaId }
     suspend fun contarPresentes(chamadaId: Long) = presencaDao.contarPresentes(chamadaId)
     suspend fun contarTotal(chamadaId: Long) = presencaDao.contarTotal(chamadaId)
 
@@ -84,20 +87,9 @@ class Repository(private val db: AppDatabase) {
             if (ex == null) presencaDao.inserir(linha) else presencaDao.atualizar(linha)
         }
 
-        // Oferta -> lançamento financeiro vinculado
-        val finUid = "$chamadaUid:oferta"
-        val finEx = financeiroDao.buscarPorChamada(cid) ?: financeiroDao.porUid(finUid)
-        if (chamada.oferta > 0) {
-            val f = Financeiro(
-                id = finEx?.id ?: 0L, data = chamada.data, tipo = "ENTRADA",
-                categoria = "Oferta (Classe)", valor = chamada.oferta,
-                descricao = "Oferta registrada na chamada da classe", chamadaId = cid,
-                uid = finEx?.uid ?: finUid, updatedAt = t, deleted = false
-            )
-            if (finEx == null) financeiroDao.inserir(f) else financeiroDao.atualizar(f)
-        } else if (finEx != null) {
-            financeiroDao.atualizar(finEx.copy(deleted = true, updatedAt = t))
-        }
+        // A oferta vive em `chamadas.oferta`. O lançamento financeiro espelhado que
+        // existia aqui morreu junto com a tela de Finanças, e era ele que duplicava a
+        // receita quando o vínculo chamada->lançamento se perdia.
         return cid
     }
 
@@ -116,77 +108,30 @@ class Repository(private val db: AppDatabase) {
         presencaDao.listarPorChamada(chamada.id).forEach {
             presencaDao.atualizar(it.copy(deleted = true, updatedAt = t))
         }
-        financeiroDao.buscarPorChamada(chamada.id)?.let {
-            financeiroDao.atualizar(it.copy(deleted = true, updatedAt = t))
-        }
         chamadaDao.atualizar(chamada.copy(deleted = true, updatedAt = t))
     }
 
-    // ---------------- Financeiro ----------------
-    val financeiro = financeiroDao.observarTodos()
-    suspend fun listarFinanceiro() = financeiroDao.listarTodos()
-    suspend fun salvarFinanceiro(f: Financeiro): Long {
-        val t = agora()
-        return if (f.id == 0L) financeiroDao.inserir(f.copy(uid = f.uid ?: novoUid(), updatedAt = t, deleted = false))
-        else { financeiroDao.atualizar(f.copy(uid = f.uid ?: novoUid(), updatedAt = t)); f.id }
-    }
-    suspend fun deletarFinanceiro(f: Financeiro) { financeiroDao.atualizar(f.copy(deleted = true, updatedAt = agora())) }
+    // ---------------- Revistas (situação por trimestre) ----------------
+    val revistasAlunos = revistaAlunoDao.observarTodas()
 
-    // ---------------- Revistas ----------------
-    val revistasPrecos = revistaPrecoDao.observarTodos()
-    val revistasEntregas = revistaEntregaDao.observarTodas()
-    suspend fun listarPrecosRevista() = revistaPrecoDao.listarTodos()
-
-    suspend fun salvarPrecoRevista(r: RevistaPreco): Long {
-        val t = agora()
-        return if (r.id == 0L) revistaPrecoDao.inserir(r.copy(uid = r.uid ?: novoUid(), updatedAt = t, deleted = false))
-        else { revistaPrecoDao.atualizar(r.copy(uid = r.uid ?: novoUid(), updatedAt = t)); r.id }
-    }
-    suspend fun deletarPrecoRevista(r: RevistaPreco) {
-        revistaPrecoDao.atualizar(r.copy(deleted = true, updatedAt = agora()))
-    }
-
-    suspend fun entregasDoTrimestre(ano: Int, trim: Int) = revistaEntregaDao.listarPorTrimestre(ano, trim)
+    suspend fun revistasDoTrimestre(ano: Int, trim: Int) = revistaAlunoDao.listarDoTrimestre(ano, trim)
 
     /**
-     * Define (ou remove) a revista de um aluno num trimestre.
-     *  - tipo == null   -> sem revista: marca a entrega como excluída
-     *  - tipo "DIGITAL" -> entrega digital (PDF)
-     *  - tipo "FISICA"  -> entrega física (o preço cadastrado é só referência)
+     * Marca se o aluno tem a revista do trimestre e se pagou.
      *
-     * NÃO gera lançamento financeiro: o controle de despesa é manual.
-     * Por compatibilidade, se existir alguma despesa automática antiga vinculada
-     * a esta entrega (versões anteriores), ela é removida (soft-delete).
+     * O uid é derivado de aluno+ano+trimestre para que dois celulares marcando o mesmo
+     * aluno atualizem a mesma linha em vez de criar duas.
      */
-    suspend fun definirRevistaAluno(
-        alunoId: Long, ano: Int, trim: Int,
-        tipo: String?, categoria: String, preco: Double, nomeAluno: String
-    ) {
-        val t = agora()
+    suspend fun marcarRevista(alunoId: Long, ano: Int, trim: Int, temRevista: Boolean, pago: Boolean) {
         val alunoUid = alunoDao.porId(alunoId)?.uid ?: return
-        val entregaUid = "$alunoUid:$ano:$trim:revista"
-        val existente = revistaEntregaDao.porUid(entregaUid)
-            ?: revistaEntregaDao.buscar(alunoId, ano, trim)
-
-        // Limpa qualquer despesa automática antiga (gerada por versões anteriores).
-        val finUid = "$entregaUid:despesa"
-        financeiroDao.porUid(finUid)?.let {
-            if (it.deleted != true) financeiroDao.atualizar(it.copy(deleted = true, updatedAt = t))
-        }
-
-        if (tipo == null) {
-            existente?.let { revistaEntregaDao.atualizar(it.copy(deleted = true, updatedAt = t)) }
-            return
-        }
-
-        // Guarda o preço de referência apenas para revista física (digital = 0).
-        val valor = if (tipo == "FISICA") preco else 0.0
-        val entrega = RevistaEntrega(
+        val uid = "$alunoUid:$ano:$trim"
+        val existente = revistaAlunoDao.porUid(uid)
+        val linha = RevistaAluno(
             id = existente?.id ?: 0L, alunoId = alunoId, ano = ano, trimestre = trim,
-            tipo = tipo, categoria = categoria, preco = valor,
-            uid = existente?.uid ?: entregaUid, updatedAt = t, deleted = false
+            temRevista = temRevista, pago = pago,
+            uid = uid, updatedAt = agora(), deleted = false
         )
-        if (existente == null) revistaEntregaDao.inserir(entrega) else revistaEntregaDao.atualizar(entrega)
+        if (existente == null) revistaAlunoDao.inserir(linha) else revistaAlunoDao.atualizar(linha)
     }
 
     // ---------------- Pontuação ----------------
@@ -271,10 +216,8 @@ class Repository(private val db: AppDatabase) {
         alunos = alunoDao.todosIncl(),
         chamadas = chamadaDao.todosIncl(),
         presencas = presencaDao.todosIncl(),
-        financeiro = financeiroDao.todosIncl(),
         visitantes = visitanteDao.todosIncl(),
-        revistasPrecos = revistaPrecoDao.todosIncl(),
-        revistasEntregas = revistaEntregaDao.todosIncl(),
+        revistasAlunos = revistaAlunoDao.todosIncl(),
         criterios = criterioDao.todosIncl(),
         pontos = pontoDao.todosIncl()
     )
@@ -292,10 +235,8 @@ class Repository(private val db: AppDatabase) {
         d.alunos.forEach { alunoDao.inserir(it) }
         d.chamadas.forEach { chamadaDao.inserir(it) }
         d.presencas.forEach { presencaDao.inserir(it) }
-        d.financeiro.forEach { financeiroDao.inserir(it) }
         d.visitantes.forEach { visitanteDao.inserir(it) }
-        d.revistasPrecos.forEach { revistaPrecoDao.inserir(it) }
-        d.revistasEntregas.forEach { revistaEntregaDao.inserir(it) }
+        d.revistasAlunos.forEach { revistaAlunoDao.inserir(it) }
         d.criterios.forEach { criterioDao.inserir(it) }
         d.pontos.forEach { pontoDao.inserir(it) }
     }
@@ -303,9 +244,9 @@ class Repository(private val db: AppDatabase) {
     /** Apaga TODOS os dados (restauração de backup / inicializar pela nuvem). */
     suspend fun limparTudo() {
         presencaDao.deletarTudo(); chamadaDao.deletarTudo(); visitanteDao.deletarTudo()
-        revistaEntregaDao.deletarTudo(); revistaPrecoDao.deletarTudo()
+        revistaAlunoDao.deletarTudo()
         pontoDao.deletarTudo(); criterioDao.deletarTudo()
-        alunoDao.deletarTudo(); classeDao.deletarTudo(); financeiroDao.deletarTudo()
+        alunoDao.deletarTudo(); classeDao.deletarTudo()
     }
 
     /* ===================================================================
@@ -320,9 +261,7 @@ class Repository(private val db: AppDatabase) {
         val alu = alunoDao.todosIncl()
         val cha = chamadaDao.todosIncl()
         val pre = presencaDao.todosIncl()
-        val fin = financeiroDao.todosIncl()
-        val rpr = revistaPrecoDao.todosIncl()
-        val ren = revistaEntregaDao.todosIncl()
+        val rev = revistaAlunoDao.todosIncl()
         val cri = criterioDao.todosIncl()
         val pts = pontoDao.todosIncl()
         val vis = visitanteDao.todosIncl()
@@ -350,7 +289,6 @@ class Repository(private val db: AppDatabase) {
             cha.forEach { put(JSONObject()
                 .put("uid", it.uid).put("classeUid", uidClasse[it.classeId] ?: "")
                 .put("data", it.data).put("licao", it.licao).put("oferta", it.oferta)
-                .put("dizimos", it.dizimos)
                 .put("visitantes", it.visitantes).put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
         })
         root.put("presencas", JSONArray().apply {
@@ -360,13 +298,6 @@ class Repository(private val db: AppDatabase) {
                 .put("biblia", b(it.biblia)).put("revista", b(it.revista))
                 .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
         })
-        root.put("financeiro", JSONArray().apply {
-            fin.forEach { put(JSONObject()
-                .put("uid", it.uid).put("data", it.data).put("tipo", it.tipo)
-                .put("categoria", it.categoria).put("valor", it.valor).put("descricao", it.descricao)
-                .put("chamadaUid", it.chamadaId?.let { id -> uidChamada[id] } ?: "")
-                .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
-        })
         root.put("visitantes", JSONArray().apply {
             vis.forEach { put(JSONObject()
                 .put("uid", it.uid).put("nome", it.nome).put("telefone", it.telefone).put("data", it.data)
@@ -374,16 +305,11 @@ class Repository(private val db: AppDatabase) {
                 .put("observacao", it.observacao).put("convertido", b(it.convertido))
                 .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
         })
-        root.put("revistasPrecos", JSONArray().apply {
-            rpr.forEach { put(JSONObject()
-                .put("uid", it.uid).put("categoria", it.categoria).put("preco", it.preco)
-                .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
-        })
-        root.put("revistasEntregas", JSONArray().apply {
-            ren.forEach { put(JSONObject()
+        root.put("revistasAlunos", JSONArray().apply {
+            rev.forEach { put(JSONObject()
                 .put("uid", it.uid).put("alunoUid", uidAluno[it.alunoId] ?: "")
-                .put("ano", it.ano).put("trimestre", it.trimestre).put("tipo", it.tipo)
-                .put("categoria", it.categoria).put("preco", it.preco)
+                .put("ano", it.ano).put("trimestre", it.trimestre)
+                .put("temRevista", b(it.temRevista)).put("pago", b(it.pago))
                 .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
         })
         root.put("criterios", JSONArray().apply {
@@ -443,8 +369,7 @@ class Repository(private val db: AppDatabase) {
             val rUpd = jLong(o, "updatedAt"); val rDel = jBool(o, "deleted")
             val local = chamadaDao.porUid(uid)
             val dados2 = Chamada(classeId = cId, data = jLong(o, "data"), licao = jInt(o, "licao"),
-                oferta = jDouble(o, "oferta"), dizimos = jDouble(o, "dizimos"),
-                visitantes = jInt(o, "visitantes"),
+                oferta = jDouble(o, "oferta"), visitantes = jInt(o, "visitantes"),
                 uid = uid, updatedAt = rUpd, deleted = rDel)
             if (local == null) chamadaDao.inserir(dados2)
             else if (rUpd > (local.updatedAt ?: 0L)) chamadaDao.atualizar(
@@ -467,20 +392,6 @@ class Repository(private val db: AppDatabase) {
             else if (rUpd > (local.updatedAt ?: 0L)) presencaDao.atualizar(dados2.copy(id = local.id))
         }
 
-        // FINANCEIRO
-        eachObj(dados.optJSONArray("financeiro")) { o ->
-            val uid = jStr(o, "uid"); if (uid.isBlank()) return@eachObj
-            val chUid = jStr(o, "chamadaUid")
-            val chId = if (chUid.isBlank()) null else mapaChamada[chUid]
-            val rUpd = jLong(o, "updatedAt"); val rDel = jBool(o, "deleted")
-            val local = financeiroDao.porUid(uid)
-            val dados2 = Financeiro(data = jLong(o, "data"), tipo = jStr(o, "tipo"), categoria = jStr(o, "categoria"),
-                valor = jDouble(o, "valor"), descricao = jStr(o, "descricao"), chamadaId = chId,
-                uid = uid, updatedAt = rUpd, deleted = rDel)
-            if (local == null) financeiroDao.inserir(dados2)
-            else if (rUpd > (local.updatedAt ?: 0L)) financeiroDao.atualizar(dados2.copy(id = local.id))
-        }
-
         // VISITANTES
         eachObj(dados.optJSONArray("visitantes")) { o ->
             val uid = jStr(o, "uid"); if (uid.isBlank()) return@eachObj
@@ -495,28 +406,17 @@ class Repository(private val db: AppDatabase) {
             else if (rUpd > (local.updatedAt ?: 0L)) visitanteDao.atualizar(dados2.copy(id = local.id))
         }
 
-        // REVISTAS - PREÇOS
-        eachObj(dados.optJSONArray("revistasPrecos")) { o ->
-            val uid = jStr(o, "uid"); if (uid.isBlank()) return@eachObj
-            val rUpd = jLong(o, "updatedAt"); val rDel = jBool(o, "deleted")
-            val local = revistaPrecoDao.porUid(uid)
-            val dados2 = RevistaPreco(categoria = jStr(o, "categoria"), preco = jDouble(o, "preco"),
-                uid = uid, updatedAt = rUpd, deleted = rDel)
-            if (local == null) revistaPrecoDao.inserir(dados2)
-            else if (rUpd > (local.updatedAt ?: 0L)) revistaPrecoDao.atualizar(dados2.copy(id = local.id))
-        }
-
-        // REVISTAS - ENTREGAS
-        eachObj(dados.optJSONArray("revistasEntregas")) { o ->
+        // REVISTAS (situação por trimestre)
+        eachObj(dados.optJSONArray("revistasAlunos")) { o ->
             val uid = jStr(o, "uid"); if (uid.isBlank()) return@eachObj
             val aId = mapaAluno[jStr(o, "alunoUid")] ?: return@eachObj
             val rUpd = jLong(o, "updatedAt"); val rDel = jBool(o, "deleted")
-            val local = revistaEntregaDao.porUid(uid)
-            val dados2 = RevistaEntrega(alunoId = aId, ano = jInt(o, "ano"), trimestre = jInt(o, "trimestre"),
-                tipo = jStr(o, "tipo").ifBlank { "FISICA" }, categoria = jStr(o, "categoria"),
-                preco = jDouble(o, "preco"), uid = uid, updatedAt = rUpd, deleted = rDel)
-            if (local == null) revistaEntregaDao.inserir(dados2)
-            else if (rUpd > (local.updatedAt ?: 0L)) revistaEntregaDao.atualizar(dados2.copy(id = local.id))
+            val local = revistaAlunoDao.porUid(uid)
+            val dados2 = RevistaAluno(alunoId = aId, ano = jInt(o, "ano"),
+                trimestre = jInt(o, "trimestre"), temRevista = jBool(o, "temRevista"),
+                pago = jBool(o, "pago"), uid = uid, updatedAt = rUpd, deleted = rDel)
+            if (local == null) revistaAlunoDao.inserir(dados2)
+            else if (rUpd > (local.updatedAt ?: 0L)) revistaAlunoDao.atualizar(dados2.copy(id = local.id))
         }
 
         // PONTUAÇÃO - CRITÉRIOS

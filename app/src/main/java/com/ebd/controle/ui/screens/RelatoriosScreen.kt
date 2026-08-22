@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ebd.controle.data.Classe
 import com.ebd.controle.data.Trimestre
@@ -51,12 +52,12 @@ import com.ebd.controle.ui.theme.Vermelho
 @Composable
 fun RelatoriosScreen() {
     val vm: RelatoriosViewModel = viewModel()
-    val classes by vm.classes.collectAsState()
-    val trimestre by vm.trimestre.collectAsState()
-    val classeId by vm.classeId.collectAsState()
-    val aulas by vm.aulas.collectAsState()
-    val relTrim by vm.relTrim.collectAsState()
-    val relDia by vm.relDia.collectAsState()
+    val classes by vm.classes.collectAsStateWithLifecycle()
+    val trimestre by vm.trimestre.collectAsStateWithLifecycle()
+    val classeId by vm.classeId.collectAsStateWithLifecycle()
+    val aulas by vm.aulas.collectAsStateWithLifecycle()
+    val relTrim by vm.relTrim.collectAsStateWithLifecycle()
+    val relDia by vm.relDia.collectAsStateWithLifecycle()
 
     var mostrarTrim by remember { mutableStateOf(false) }
 

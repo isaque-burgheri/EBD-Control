@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ebd.controle.data.CriterioPontuacao
 import com.ebd.controle.ui.AlunoPontosUi
@@ -55,8 +56,8 @@ private fun rotuloGrupo(g: String): String = when (g) {
 @Composable
 fun PontuacaoScreen() {
     val vm: PontuacaoViewModel = viewModel()
-    val classes by vm.classes.collectAsState()
-    val criterios by vm.criterios.collectAsState()
+    val classes by vm.classes.collectAsStateWithLifecycle()
+    val criterios by vm.criterios.collectAsStateWithLifecycle()
 
     var aba by remember { mutableStateOf(0) }
     var mostrarCriterios by remember { mutableStateOf(false) }
@@ -100,9 +101,9 @@ private fun AbaMarcar(
     classes: List<com.ebd.controle.data.Classe>,
     criterios: List<CriterioPontuacao>
 ) {
-    val data by vm.data.collectAsState()
-    val classeId by vm.classeId.collectAsState()
-    val alunos by vm.alunos.collectAsState()
+    val data by vm.data.collectAsStateWithLifecycle()
+    val classeId by vm.classeId.collectAsStateWithLifecycle()
+    val alunos by vm.alunos.collectAsStateWithLifecycle()
 
     // Seleciona a 1ª classe automaticamente quando a tela abre.
     LaunchedEffect(classes) {
@@ -262,9 +263,9 @@ private fun AbaRanking(
     vm: PontuacaoViewModel,
     classes: List<com.ebd.controle.data.Classe>
 ) {
-    val trimestre by vm.trimestre.collectAsState()
-    val classeRankingId by vm.classeRankingId.collectAsState()
-    val ranking by vm.ranking.collectAsState()
+    val trimestre by vm.trimestre.collectAsStateWithLifecycle()
+    val classeRankingId by vm.classeRankingId.collectAsStateWithLifecycle()
+    val ranking by vm.ranking.collectAsStateWithLifecycle()
 
     val opcoesFiltro = listOf("Todas as classes") + classes.map { it.nome }
     val filtroIdx = if (classeRankingId == null) 0

@@ -8,10 +8,10 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Classe::class, Aluno::class, Chamada::class, Presenca::class, Financeiro::class,
-        RevistaPreco::class, RevistaEntrega::class, CriterioPontuacao::class, PontoLancamento::class,
+    entities = [Classe::class, Aluno::class, Chamada::class, Presenca::class,
+        RevistaAluno::class, CriterioPontuacao::class, PontoLancamento::class,
         Visitante::class],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -19,9 +19,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun alunoDao(): AlunoDao
     abstract fun chamadaDao(): ChamadaDao
     abstract fun presencaDao(): PresencaDao
-    abstract fun financeiroDao(): FinanceiroDao
-    abstract fun revistaPrecoDao(): RevistaPrecoDao
-    abstract fun revistaEntregaDao(): RevistaEntregaDao
+    abstract fun revistaAlunoDao(): RevistaAlunoDao
     abstract fun criterioPontuacaoDao(): CriterioPontuacaoDao
     abstract fun pontoLancamentoDao(): PontoLancamentoDao
     abstract fun visitanteDao(): VisitanteDao
@@ -32,7 +30,7 @@ abstract class AppDatabase : RoomDatabase() {
          * companion. Serve para carimbar a origem do arquivo de backup; mantenha os dois
          * em sincronia ao subir o esquema.
          */
-        const val VERSAO_ESQUEMA = 8
+        const val VERSAO_ESQUEMA = 9
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -129,6 +127,68 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * Migração 8 -> 9: enxuga o app para o que a EBD realmente usa.
+         *
+         *  - `financeiro` sai: a tela de Finanças era ilustrativa e nunca entrou em uso.
+         *    A oferta continua onde sempre esteve de verdade, em `chamadas.oferta`; a
+         *    tabela só guardava uma cópia derivada dela.
+         *  - `chamadas.dizimos` sai: o app não gerencia dízimo. Não havia nem campo na
+         *    interface que escrevesse nele.
+         *  - `revistas_precos` + `revistas_entregas` viram `revistas_alunos`, com apenas
+         *    "tem revista" e "pagou" por trimestre. Categoria e preço existiam para
+         *    alimentar o financeiro, que se foi.
+         *
+         * As entregas já registradas são preservadas como `temRevista = 1`. Não há como
+         * inferir `pago` do que existia (o preço registrado era o de tabela, não um
+         * pagamento), então entram como não pago — confira o trimestre corrente no app.
+         */
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `revistas_alunos` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`alunoId` INTEGER NOT NULL, `ano` INTEGER NOT NULL, " +
+                        "`trimestre` INTEGER NOT NULL, " +
+                        "`temRevista` INTEGER NOT NULL DEFAULT 0, " +
+                        "`pago` INTEGER NOT NULL DEFAULT 0, " +
+                        "`uid` TEXT, `updatedAt` INTEGER, `deleted` INTEGER)"
+                )
+                // GROUP BY porque a tabela antiga não tinha índice único: um aluno podia
+                // ter mais de uma entrega no mesmo trimestre.
+                db.execSQL(
+                    "INSERT INTO revistas_alunos " +
+                        "(alunoId, ano, trimestre, temRevista, pago, uid, updatedAt, deleted) " +
+                        "SELECT alunoId, ano, trimestre, 1, 0, MAX(uid), MAX(updatedAt), " +
+                        "MIN(IFNULL(deleted,0)) FROM revistas_entregas " +
+                        "GROUP BY alunoId, ano, trimestre"
+                )
+                db.execSQL("DROP TABLE IF EXISTS revistas_entregas")
+                db.execSQL("DROP TABLE IF EXISTS revistas_precos")
+                db.execSQL("DROP TABLE IF EXISTS financeiro")
+
+                // O SQLite do minSdk 26 não tem ALTER TABLE DROP COLUMN (só a partir do
+                // 3.35 / API 34), então tirar `dizimos` exige recriar a tabela.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `chamadas_nova` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`classeId` INTEGER NOT NULL, `data` INTEGER NOT NULL, " +
+                        "`licao` INTEGER NOT NULL DEFAULT 0, " +
+                        "`oferta` REAL NOT NULL DEFAULT 0.0, " +
+                        "`visitantes` INTEGER NOT NULL DEFAULT 0, " +
+                        "`uid` TEXT, `updatedAt` INTEGER, `deleted` INTEGER)"
+                )
+                db.execSQL(
+                    "INSERT INTO chamadas_nova " +
+                        "(id, classeId, data, licao, oferta, visitantes, uid, updatedAt, deleted) " +
+                        "SELECT id, classeId, data, licao, oferta, visitantes, uid, updatedAt, deleted " +
+                        "FROM chamadas"
+                )
+                db.execSQL("DROP TABLE chamadas")
+                db.execSQL("ALTER TABLE chamadas_nova RENAME TO chamadas")
+            }
+        }
+
+        /**
          * Critérios padrão, para o app abrir usável sem depender da nuvem.
          *
          * O uid é fixo e legível para não duplicar ao sincronizar entre celulares.
@@ -177,7 +237,10 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "ebd-controle.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                ).addMigrations(
+                    MIGRATION_1_2, MIGRATION_4_5, MIGRATION_5_6,
+                    MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9
+                )
                     // Numa instalação limpa o Room cria o esquema direto na versão atual
                     // e NÃO roda migração nenhuma. Sem este callback, os critérios (que
                     // só existiam dentro da MIGRATION_7_8) nunca eram criados: o app

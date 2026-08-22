@@ -83,7 +83,7 @@ fun BackupScreen() {
                     Text(
                         "Tudo fica salvo no próprio celular (funciona sem internet). " +
                         "O backup gera um arquivo com TODOS os dados: classes, membros, chamadas, " +
-                        "presenças, visitantes, finanças, revistas e a pontuação completa. " +
+                        "presenças, visitantes, revistas e a pontuação completa. " +
                         "Use-o para guardar uma cópia de segurança ou para passar os dados a outro celular.",
                         style = MaterialTheme.typography.bodyMedium
                     )

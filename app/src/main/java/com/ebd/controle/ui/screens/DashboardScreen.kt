@@ -14,7 +14,6 @@ import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.*
@@ -31,6 +30,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.ebd.controle.data.formatarData
@@ -40,13 +40,12 @@ import com.ebd.controle.ui.components.Kicker
 import com.ebd.controle.ui.components.StatCard
 import com.ebd.controle.ui.theme.Azul
 import com.ebd.controle.ui.theme.Verde
-import com.ebd.controle.ui.theme.Vermelho
 import java.util.Calendar
 
 @Composable
 fun DashboardScreen(nav: NavController) {
     val vm: DashboardViewModel = viewModel()
-    val s by vm.state.collectAsState()
+    val s by vm.state.collectAsStateWithLifecycle()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -84,11 +83,10 @@ fun DashboardScreen(nav: NavController) {
             }
         }
         item {
-            // Saldo do mês em destaque, ocupando a largura toda
             StatCard(
-                "Saldo do Mês", formatarMoeda(s.saldoMes),
-                subtitle = if (s.saldoMes >= 0) "No azul este mês" else "No vermelho este mês",
-                accent = if (s.saldoMes >= 0) Verde else Vermelho,
+                "Ofertas do Mês", formatarMoeda(s.ofertasMes),
+                subtitle = "Somadas das chamadas lançadas",
+                accent = Verde,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -170,7 +168,6 @@ fun DashboardScreen(nav: NavController) {
         item { SecaoTitulo("Atalhos") }
         item { AtalhoCard("Pontuação e ranking dos alunos", Icons.Filled.EmojiEvents) { nav.navigate("pontos") } }
         item { AtalhoCard("Relatórios e gráficos", Icons.Filled.BarChart) { nav.navigate("relatorios") } }
-        item { AtalhoCard("Revistas dos alunos", Icons.Filled.MenuBook) { nav.navigate("revistas") } }
         item { AtalhoCard("Classes e professores", Icons.Filled.School) { nav.navigate("classes") } }
         item { AtalhoCard("Ver todos os aniversariantes", Icons.Filled.Cake) { nav.navigate("aniversarios") } }
         item { AtalhoCard("Backup e dados (exportar/importar)", Icons.Filled.CloudSync) { nav.navigate("backup") } }

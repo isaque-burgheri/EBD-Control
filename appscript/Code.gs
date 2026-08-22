@@ -4,8 +4,8 @@
  * Uma aba por "tabela". Sincronização por 'uid' com regra
  * "última alteração vence" (updatedAt). Exclusões viram deleted = 1.
  *
- * Abas: classes, alunos, chamadas, presencas, financeiro,
- *       revistasPrecos, revistasEntregas, criterios, pontos, visitantes.
+ * Abas: classes, alunos, chamadas, presencas, revistasAlunos,
+ *       criterios, pontos, visitantes.
  *
  * doGet:
  *   - sem parâmetros            -> devolve TODAS as tabelas (usado pelo app)
@@ -18,9 +18,9 @@
  * 1) Cole este código no editor e salve.
  * 2) Implantar -> Gerenciar implantações -> Editar (lápis) -> Versão "Nova versão"
  *    -> Implantar. A URL /exec continua a mesma; não mexer no app.
- * 3) SÓ ENTÃO rode MIGRAR_PARA_V2, uma vez. Não apaga dado.
+ * 3) SÓ ENTÃO rode MIGRAR_PARA_V3, uma vez. Não apaga dado das abas que ficam.
  *
- *    A ordem importa: MIGRAR_PARA_V2 converte updatedAt de data para número, mas
+ *    A ordem importa: a migração converte updatedAt de data para número, mas
  *    quem atende o /exec é a versão IMPLANTADA. Se a implantação ainda for a v1,
  *    a primeira sincronização depois da migração grava tudo de volta como data e
  *    desfaz o trabalho.
@@ -41,8 +41,10 @@
  *    por último — mesmo que essa versão fosse a mais pobre. O app usa `>`.
  *    Dois critérios diferentes para a mesma regra nunca convergem.
  *
- * 3. `chamadas` ganhou a coluna `dizimos`, que existia no app e não existia
- *    aqui. Toda sincronização zerava o dízimo registrado.
+ * 3. `financeiro`, `revistasPrecos` e `revistasEntregas` saíram do esquema, e
+ *    `revistasAlunos` entrou no lugar — só "tem revista" e "pagou" por trimestre.
+ *    A coluna `dizimos` de `chamadas` também saiu: o app não gerencia dízimo.
+ *    As abas que saíram são renomeadas, não apagadas.
  * ---------------------------------------------------------------------------
  */
 
@@ -68,8 +70,8 @@ var SCHEMA = {
     ]
   },
   chamadas: {
-    campos:  ['uid','classeUid','data','licao','oferta','dizimos','visitantes','updatedAt','deleted'],
-    titulos: ['ID','ID da Classe','Data da Aula','Lição','Oferta (R$)','Dízimos (R$)','Visitantes','Atualizado em','Excluído'],
+    campos:  ['uid','classeUid','data','licao','oferta','visitantes','updatedAt','deleted'],
+    titulos: ['ID','ID da Classe','Data da Aula','Lição','Oferta (R$)','Visitantes','Atualizado em','Excluído'],
     datas:   { data: true },
     apoio:   [
       { titulo: 'Classe', lookupCol: 'classeUid', lookupAba: 'classes', lookupChave: 'uid', lookupValor: 'nome' }
@@ -83,21 +85,9 @@ var SCHEMA = {
       { titulo: 'Aluno', lookupCol: 'alunoUid', lookupAba: 'alunos', lookupChave: 'uid', lookupValor: 'nome' }
     ]
   },
-  financeiro: {
-    campos:  ['uid','data','tipo','categoria','valor','descricao','chamadaUid','updatedAt','deleted'],
-    titulos: ['ID','Data','Tipo','Categoria','Valor (R$)','Descrição','ID da Chamada','Atualizado em','Excluído'],
-    datas:   { data: true },
-    apoio:   []
-  },
-  revistasPrecos: {
-    campos:  ['uid','categoria','preco','updatedAt','deleted'],
-    titulos: ['ID','Categoria','Preço (R$)','Atualizado em','Excluído'],
-    datas:   {},
-    apoio:   []
-  },
-  revistasEntregas: {
-    campos:  ['uid','alunoUid','ano','trimestre','tipo','categoria','preco','updatedAt','deleted'],
-    titulos: ['ID','ID do Aluno','Ano','Trimestre','Tipo','Categoria','Preço (R$)','Atualizado em','Excluído'],
+  revistasAlunos: {
+    campos:  ['uid','alunoUid','ano','trimestre','temRevista','pago','updatedAt','deleted'],
+    titulos: ['ID','ID do Aluno','Ano','Trimestre','Tem Revista','Pago','Atualizado em','Excluído'],
     datas:   {},
     apoio:   [
       { titulo: 'Aluno', lookupCol: 'alunoUid', lookupAba: 'alunos', lookupChave: 'uid', lookupValor: 'nome' }
@@ -410,28 +400,24 @@ function RESETAR_E_CONFIGURAR() {
 }
 
 /**
- * Migração v1 -> v2. Rodar UMA vez após colar este código. Não apaga dado.
+ * Migração para o esquema atual. Rodar UMA vez após colar este código.
  *
- * - Reescreve os cabeçalhos (a aba `chamadas` ganha a coluna de dízimos).
+ * - Arquiva as abas que saíram do esquema (finanças e revistas antigas).
+ * - Reescreve os cabeçalhos.
  * - Converte `updatedAt` de célula de data para número puro.
- * - Reaplica formatos e as colunas de apoio.
- *
- * A coluna `dizimos` entra ANTES de `visitantes` no esquema novo. Numa aba já
- * existente as duas colunas estão trocadas de lugar, então inserimos uma coluna
- * em branco na posição certa em vez de sobrescrever os valores existentes.
+ * - Limpa a formatação de data das colunas que não são data, e reaplica as
+ *   colunas de apoio.
  */
-function MIGRAR_PARA_V2() {
+function MIGRAR_PARA_V3() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  var shCha = ss.getSheetByName('chamadas');
-  if (shCha && shCha.getLastRow() >= 1) {
-    var cabecalho = shCha.getRange(1, 1, 1, shCha.getLastColumn()).getValues()[0];
-    if (cabecalho.indexOf('Dízimos (R$)') === -1) {
-      var posDizimos = SCHEMA.chamadas.campos.indexOf('dizimos') + 1;
-      shCha.insertColumnBefore(posDizimos);
-      shCha.getRange(1, posDizimos).setValue('Dízimos (R$)');
-    }
-  }
+  // Abas que saíram do app. Renomeadas em vez de apagadas: se você ainda quiser
+  // consultar o histórico de finanças ou de entregas de revista, ele continua aí —
+  // o script simplesmente para de tocar nelas.
+  ['financeiro', 'revistasPrecos', 'revistasEntregas'].forEach(function (nome) {
+    var sh = ss.getSheetByName(nome);
+    if (sh) sh.setName(nome + ' (arquivada)');
+  });
 
   Object.keys(SCHEMA).forEach(function (name) {
     var sh = aba_(name);
@@ -487,7 +473,7 @@ function MIGRAR_PARA_V2() {
     preencherApoio_(sh, name);
   });
 
-  ss.toast('Migração v2 concluída: updatedAt virou número e dízimos foi criado.', 'EBD Sync', 6);
+  ss.toast('Migração concluída. Abas de finanças e revistas antigas foram arquivadas.', 'EBD Sync', 6);
 }
 
 /* ===================== RANKING PARA IMPRESSÃO ===================== */

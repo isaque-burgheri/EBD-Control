@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ebd.controle.data.Chamada
 import com.ebd.controle.data.Presenca
@@ -84,10 +85,10 @@ private val tocadosSaver = listSaver<SnapshotStateList<Long>, Long>(
 @Composable
 fun ChamadaScreen() {
     val vm: ChamadaViewModel = viewModel()
-    val classes by vm.classes.collectAsState()
-    val alunos by vm.alunos.collectAsState()
-    val chamadaExistente by vm.chamadaExistente.collectAsState()
-    val presencasExistentes by vm.presencasExistentes.collectAsState()
+    val classes by vm.classes.collectAsStateWithLifecycle()
+    val alunos by vm.alunos.collectAsStateWithLifecycle()
+    val chamadaExistente by vm.chamadaExistente.collectAsStateWithLifecycle()
+    val presencasExistentes by vm.presencasExistentes.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 

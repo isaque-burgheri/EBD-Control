@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -28,7 +29,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val settingsVm: SettingsViewModel = viewModel()
-            val isDark by settingsVm.isDarkMode.collectAsState()
+            val isDark by settingsVm.isDarkMode.collectAsStateWithLifecycle()
 
             EBDTheme(useDark = isDark) {
                 AppRoot()

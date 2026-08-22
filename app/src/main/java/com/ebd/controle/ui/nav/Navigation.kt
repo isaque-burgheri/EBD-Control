@@ -7,13 +7,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.HowToReg
-import androidx.compose.material.icons.filled.Paid
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.HowToReg
-import androidx.compose.material.icons.outlined.Paid
+import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -46,7 +46,9 @@ private val bottomItems = listOf(
     NavItem("chamada", "Chamada", Icons.Filled.HowToReg, Icons.Outlined.HowToReg),
     NavItem("membros", "Membros", Icons.Filled.Groups, Icons.Outlined.Groups),
     NavItem("visitantes", "Visitantes", Icons.Filled.PersonAdd, Icons.Outlined.PersonAdd),
-    NavItem("financas", "Finanças", Icons.Filled.Paid, Icons.Outlined.Paid)
+    // Pontuação entrou no lugar de Finanças: é a tela usada toda semana e antes só
+    // se chegava nela por atalho no Dashboard.
+    NavItem("pontos", "Pontuação", Icons.Filled.EmojiEvents, Icons.Outlined.EmojiEvents)
 )
 
 private val titulos = mapOf(
@@ -56,8 +58,6 @@ private val titulos = mapOf(
     "visitantes" to "Visitantes",
     "relatorios" to "Relatórios",
     "pontos" to "Pontuação",
-    "revistas" to "Revistas",
-    "financas" to "Finanças",
     "classes" to "Classes",
     "aniversarios" to "Aniversariantes",
     "backup" to "Backup e dados",
@@ -152,8 +152,6 @@ fun AppRoot() {
             composable("visitantes") { VisitantesScreen() }
             composable("relatorios") { RelatoriosScreen() }
             composable("pontos") { PontuacaoScreen() }
-            composable("revistas") { RevistasScreen() }
-            composable("financas") { FinancasScreen() }
             composable("classes") { ClassesScreen() }
             composable("aniversarios") { AniversariantesScreen() }
             composable("backup") { BackupScreen() }
