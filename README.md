@@ -84,11 +84,40 @@ Pontuação (marcação rápida) e ranking dos alunos por trimestre:
 > Android Studio.)
 
 ## 3. Gerar o APK
-- Menu **Build → Build Bundle(s) / APK(s) → Build APK(s)**.
-- O APK de teste fica em: `app/build/outputs/apk/debug/app-debug.apk`.
-- Para **distribuir de verdade** (mais estável e instalável em qualquer celular),
-  gere um **APK assinado**: **Build → Generate Signed Bundle / APK → APK**,
-  crie uma *keystore* (guarde-a!) e selecione **release**.
+
+### Para distribuir
+O APK que vai para os celulares é o **release**, assinado com a chave do projeto.
+
+1. Crie a chave uma vez (guarde a senha num gerenciador e o `.jks` fora da máquina):
+   ```
+   keytool -genkeypair -v -keystore ebd-release.jks -alias ebd -keyalg RSA -keysize 2048 -validity 10000
+   ```
+2. Copie `keystore.properties.exemplo` para `keystore.properties` na raiz e preencha
+   as senhas. O arquivo está no `.gitignore` — nem ele nem o `.jks` entram no git.
+3. `./gradlew :app:assembleRelease` (ou **Build → Generate Signed Bundle / APK** no
+   Android Studio).
+
+O APK sai em `app/build/outputs/apk/release/app-release.apk`.
+
+> **Nunca distribua o APK de debug.** A chave de debug é gerada pelo Android Studio,
+> é descartável e **muda de máquina para máquina**. Um APK assinado com uma chave
+> diferente da que está instalada não atualiza o app: o Android recusa com "conflito
+> com um pacote já existente", e a única saída é desinstalar — perdendo os dados
+> locais de quem não tinha sincronizado. Com a chave própria isso não acontece mais.
+
+### Só para testar
+`./gradlew :app:assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`.
+Serve para rodar no seu aparelho; não passe adiante.
+
+### A versão
+Uma linha só, em `app/build.gradle.kts`:
+
+```kotlin
+val versao = "3.6"
+```
+
+O `versionCode` é calculado a partir dela (`3*100 + 6 = 306`) e precisa sempre crescer,
+senão o Android recusa a instalação como downgrade. **Não edite o `versionCode` à mão.**
 
 ## 4. Instalar nos celulares
 1. Envie o arquivo `.apk` (WhatsApp, Drive, cabo etc.).
@@ -99,9 +128,9 @@ Pontuação (marcação rápida) e ranking dos alunos por trimestre:
 
 ### Backup local (arquivo `.json`)
 Tela **Início → Backup e dados**:
-- **Exportar** gera um `.json` com TODOS os dados — as 10 tabelas: classes, membros,
-  chamadas, presenças, visitantes, finanças, preços e entregas de revistas, critérios
-  de pontuação e pontos lançados.
+- **Exportar** gera um `.json` com TODOS os dados — as 9 tabelas: classes, membros,
+  chamadas, presenças, visitantes, situação das revistas por trimestre, critérios de
+  pontuação, pontos lançados e contribuições dos professores.
 - **Restaurar** lê um `.json` e **substitui** os dados atuais pelos do arquivo
   (pede confirmação antes). Use para recuperar uma cópia ou migrar para outro celular.
 
@@ -129,18 +158,29 @@ Permite que **vários celulares** usem os mesmos dados, compartilhando uma plani
 > "última alteração vence" (`updatedAt`) e devolve o estado completo. Nomes de classe
 > e aluno aparecem em colunas de apoio ao lado dos IDs, sem afetar a sincronização.
 
-> **Abas da planilha:** `classes`, `alunos`, `chamadas`, `presencas`, `financeiro`,
-> `revistasPrecos`, `revistasEntregas`, `criterios`, `pontos` e `visitantes`.
+> **Abas da planilha:** `classes`, `alunos`, `chamadas`, `presencas`,
+> `revistasAlunos`, `criterios`, `pontos`, `contribuicoes` e `visitantes`.
 
-> **Em celular novo:** depois de colar a URL, use **Baixar da nuvem (substituir
-> tudo)** para puxar tudo o que já está na planilha. Instalação limpa nasce sem
-> classes e sem membros — os critérios de pontuação padrão, esses sim, já vêm.
+> **Em celular novo:** cole a URL e toque em **Sincronizar agora**. Como toda
+> sincronização é de mão dupla — envia o que mudou e aplica o que volta — isso já traz
+> a planilha inteira; o antigo "Baixar da nuvem" deixou de ser necessário e saiu.
+> Instalação limpa nasce sem classes e sem membros; os critérios de pontuação padrão,
+> esses sim, já vêm.
 
-#### Atualizando de uma planilha na v1 do script
+#### Atualizando uma planilha antiga
 
-Se a planilha foi criada antes de agosto/2026, rode **`MIGRAR_PARA_V2`** uma vez.
-Ele converte `updatedAt` de célula de data para número, cria a coluna de dízimos e
-repara a formatação das colunas booleanas. Não apaga dado.
+Cada mudança de esquema traz uma função de migração, que se roda **uma vez** no editor
+do Apps Script. Nenhuma delas apaga dado, e rodar de novo é inofensivo:
+
+| Função | O que faz |
+|---|---|
+| `MIGRAR_PARA_V3` | Arquiva as abas que saíram (finanças e revistas antigas), converte `updatedAt` de data para número e repara a formatação das colunas booleanas. |
+| `MIGRAR_PARA_V4` | Cria a aba `contribuicoes` e insere a coluna **Professor** em `alunos`. |
+
+> **Por que a posição da coluna importa:** as abas são lidas por **posição**, não por
+> nome de cabeçalho. Uma coluna inserida no lugar errado faz `updatedAt` e `deleted`
+> serem lidos deslocados, silenciosamente. É por isso que existe uma função de migração
+> em vez de "adicione a coluna na mão".
 
 **A ordem importa:** cole o código → **reimplante** (Nova versão) → só então rode a
 migração. Quem atende o `/exec` é a versão implantada; migrar antes de reimplantar
@@ -161,7 +201,10 @@ disputa por trimestre.
   um toque marca/desmarca.
 - Critérios **por quantidade** (alimentos por unidade/peso): botão **− / +** para
   contar unidades; os pontos são multiplicados automaticamente.
-- O **total do aluno no dia** atualiza na hora.
+- O **total do aluno no dia** atualiza na hora, já contando o que você acabou de marcar.
+- Marque à vontade: **nada é gravado até o botão "Salvar pontuação"** no fim da lista,
+  igual à tela de Chamada. O aviso no topo mostra quantas marcações estão pendentes, e
+  trocar de classe ou de data com marcações abertas pede confirmação.
 - Alunos marcados como **especiais (inclusão)** veem automaticamente o grupo de
   metas adaptadas.
 
@@ -180,7 +223,27 @@ disputa por trimestre.
 > "Aluno especial (inclusão)"**. Isso troca o grupo de critérios exibido para ele
 > na marcação.
 
-## 7. Mural público do ranking (GitHub Pages)
+## 7. Contribuições dos professores
+
+Tela **Início → Contribuições dos professores**. O trabalho na EBD é voluntário e a
+oferta de domingo raramente cobre o café — a diferença saía do bolso de quem coordena.
+Os professores passaram a contribuir com um valor mensal, e esta tela existe para dar
+transparência ao que entrou e ao que foi repassado ao diretor.
+
+- **Por trimestre**, com os três meses lado a lado e uma linha por professor.
+- Toque num mês para registrar: **valor**, **forma** (dinheiro ou pix), **data** e uma
+  observação. O valor vem preenchido com o combinado, mas é livre — quem der mais ou
+  menos é registrado como deu.
+- O resumo no topo mostra o **total do trimestre**, quantos contribuíram, a quebra
+  **por mês** e **por forma de pagamento**.
+- Mês sem lançamento aparece com um traço, não com "R$ 0,00": a contribuição é
+  voluntária, e a tela mostra o que entrou — nunca o que "falta" alguém pagar.
+
+> **Quem aparece aqui:** quem estiver marcado em **Membros → editar membro →
+> "É professor"**. Desmarcar tira a pessoa da lista sem apagar o que ela já
+> contribuiu — o histórico volta se ela for marcada de novo.
+
+## 8. Mural público do ranking (GitHub Pages)
 
 O ranking pode ir ao ar numa página que qualquer pessoa acessa, sem backend e sem custo.
 
@@ -210,7 +273,7 @@ minutos — conte com uma defasagem real de 10 a 25 minutos.
 > Para pôr os logotipos, coloque `logo-igreja.png` e `logo-ebd.png` dentro de `site/`.
 > O workflow copia, e a página os esconde sozinha se não existirem.
 
-## 8. Aparência (tema claro e escuro)
+## 9. Aparência (tema claro e escuro)
 - Toggle em **Configurações → Aparência → Tema Escuro**.
 - **Tema claro — _branco editorial_**: fundo branco quente com um leve degradê
   "papel", cards de borda fina e cantos arredondados, **preto quente (#1A1615)**
@@ -225,14 +288,14 @@ minutos — conte com uma defasagem real de 10 a 25 minutos.
   *kickers* em **Geist**.
 - Fontes embarcadas no APK (`res/font/`), sob a SIL Open Font License.
 
-## 9. Personalização rápida
+## 10. Personalização rápida
 - Nome do app: `app/src/main/res/values/strings.xml`.
 - Cores e tipografia: `app/src/main/java/com/ebd/controle/ui/theme/Theme.kt`.
 - Componentes visuais (cards, gráfico): `ui/components/Components.kt`.
 - Layout da tela inicial: `ui/screens/DashboardScreen.kt`.
 - Pacote/ID do app: `com.ebd.controle` (em `app/build.gradle.kts`).
 
-## 10. Estrutura do projeto
+## 11. Estrutura do projeto
 ```
 ├── app/src/main/
 │   ├── java/com/ebd/controle/
@@ -248,26 +311,31 @@ minutos — conte com uma defasagem real de 10 a 25 minutos.
 │   │       ├── components/        # StatCard, BarChart, Dropdown, DateField
 │   │       ├── nav/Navigation.kt  # barra inferior + roteamento
 │   │       └── screens/           # 11 telas (Dashboard, Chamada, Pontuação, etc.)
+│   └── (CLAUDE.md na raiz reúne as decisões de projeto, para quem for mexer)
 │   └── res/
 │       ├── font/                  # Geist + Playfair Display
 │       └── values/                # strings.xml, themes.xml, colors.xml
 ├── appscript/Code.gs              # backend da sincronização (Google Apps Script)
+├── keystore.properties.exemplo    # modelo da config de assinatura (o real fica fora do git)
+├── CLAUDE.md                      # decisões de projeto e armadilhas conhecidas
 ├── site/index.html                # mural público do ranking (GitHub Pages)
 ├── ranking-impressao.html         # mural para uso interno, com a URL colada à mão
 └── docs/ANALISE.md                # diagnóstico técnico e ordem de trabalho
 ```
 
-> **Banco de dados (Room):** versão atual **8**. A migração 7→8 adiciona as tabelas
-> `criterios_pontuacao` e `pontos_lancamentos` e a coluna `especial` em `alunos`,
-> sem apagar dados. Roda sozinha na primeira abertura do app após a atualização.
-> Em instalação limpa não há migração — o esquema nasce na versão atual e um
-> `onCreate` semeia os critérios padrão.
+> **Banco de dados (Room):** versão atual **10**. As migrações rodam sozinhas na
+> primeira abertura após a atualização, sem apagar dados — a 8→9 enxugou o esquema
+> (saíram finanças e as tabelas antigas de revista) e a 9→10 acrescentou a coluna
+> `professor` em `alunos` e a tabela `contribuicoes_professores`.
+> Em instalação limpa **não há migração**: o esquema nasce na versão atual e um
+> `onCreate` semeia os critérios padrão. Por isso, o que precisa existir num banco
+> novo tem de estar no `onCreate` também, e não só dentro da migração.
 
 > **Estado do código:** [`docs/ANALISE.md`](docs/ANALISE.md) documenta os defeitos de
 > integridade de dados encontrados em agosto/2026, o que já foi corrigido e o que
 > continua em aberto. Vale a leitura antes de mexer na camada de sincronização.
 
-## 11. Se o Gradle Sync falhar por versão
+## 12. Se o Gradle Sync falhar por versão
 - Aceite as sugestões de atualização do Android Studio (AGP Upgrade Assistant).
 - Versões usadas: Gradle 8.9, AGP 8.7.3, Kotlin 2.0.21, Compose BOM 2024.10.01,
   Room 2.6.1, KSP 2.0.21-1.0.25.
@@ -276,7 +344,7 @@ minutos — conte com uma defasagem real de 10 a 25 minutos.
   mais recente da série 2.x.
 - **`minSdk` é 26** (Android 8.0+), exigido pelas fontes variáveis do tema.
 
-## 12. Créditos
+## 13. Créditos
 - **Geist** — Vercel, sob a SIL Open Font License 1.1.
 - **Playfair Display** — Claus Eggers Sørensen, sob a SIL Open Font License 1.1.
 - Ícones no estilo Material Symbols (Google), sob a Apache License 2.0.
