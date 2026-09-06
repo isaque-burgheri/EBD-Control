@@ -19,6 +19,7 @@ class Repository(private val db: AppDatabase) {
     private val criterioDao = db.criterioPontuacaoDao()
     private val pontoDao = db.pontoLancamentoDao()
     private val visitanteDao = db.visitanteDao()
+    private val contribuicaoDao = db.contribuicaoDao()
 
     private fun novoUid() = UUID.randomUUID().toString()
     private fun agora() = System.currentTimeMillis()
@@ -186,6 +187,42 @@ class Repository(private val db: AppDatabase) {
     /** Lançamentos de pontos dentro de um período [ini, fim). */
     suspend fun pontosDoPeriodo(ini: Long, fim: Long) = pontoDao.listarPorPeriodo(ini, fim)
 
+    // ---------------- Contribuições dos professores ----------------
+    val contribuicoes = contribuicaoDao.observarTodas()
+
+    /** Contribuições de um trimestre (os três meses de uma vez). */
+    suspend fun contribuicoesDoTrimestre(t: Trimestre) =
+        contribuicaoDao.listarDosMeses(t.ano, t.meses())
+
+    /**
+     * Registra (ou apaga) a contribuição de um professor num mês.
+     *
+     * valor <= 0 remove o lançamento (soft-delete), que é como a tela desfaz um
+     * registro feito por engano. O uid vem de aluno+ano+mês para que dois celulares
+     * lançando o mesmo mês atualizem a mesma linha em vez de somar duas.
+     */
+    suspend fun salvarContribuicao(
+        alunoId: Long, ano: Int, mes: Int, valor: Double,
+        forma: String, data: Long, observacao: String
+    ) {
+        val t = agora()
+        val alunoUid = alunoDao.porId(alunoId)?.uid ?: return
+        val uid = "contrib:$alunoUid:$ano:$mes"
+        val existente = contribuicaoDao.porUid(uid)
+
+        if (valor <= 0.0) {
+            existente?.let { if (it.deleted != true) contribuicaoDao.atualizar(it.copy(deleted = true, updatedAt = t)) }
+            return
+        }
+
+        val linha = ContribuicaoProfessor(
+            id = existente?.id ?: 0L, alunoId = alunoId, ano = ano, mes = mes,
+            valor = valor, forma = forma, data = data, observacao = observacao,
+            uid = uid, updatedAt = t, deleted = false
+        )
+        if (existente == null) contribuicaoDao.inserir(linha) else contribuicaoDao.atualizar(linha)
+    }
+
     // ---------------- Visitantes ----------------
     val visitantes = visitanteDao.observarTodos()
     suspend fun listarVisitantes() = visitanteDao.listarTodos()
@@ -219,7 +256,8 @@ class Repository(private val db: AppDatabase) {
         visitantes = visitanteDao.todosIncl(),
         revistasAlunos = revistaAlunoDao.todosIncl(),
         criterios = criterioDao.todosIncl(),
-        pontos = pontoDao.todosIncl()
+        pontos = pontoDao.todosIncl(),
+        contribuicoes = contribuicaoDao.todasIncl()
     )
 
     /**
@@ -239,6 +277,7 @@ class Repository(private val db: AppDatabase) {
         d.revistasAlunos.forEach { revistaAlunoDao.inserir(it) }
         d.criterios.forEach { criterioDao.inserir(it) }
         d.pontos.forEach { pontoDao.inserir(it) }
+        d.contribuicoes.forEach { contribuicaoDao.inserir(it) }
     }
 
     /** Apaga TODOS os dados (restauração de backup / inicializar pela nuvem). */
@@ -246,6 +285,7 @@ class Repository(private val db: AppDatabase) {
         presencaDao.deletarTudo(); chamadaDao.deletarTudo(); visitanteDao.deletarTudo()
         revistaAlunoDao.deletarTudo()
         pontoDao.deletarTudo(); criterioDao.deletarTudo()
+        contribuicaoDao.deletarTudo()
         alunoDao.deletarTudo(); classeDao.deletarTudo()
     }
 
@@ -265,6 +305,7 @@ class Repository(private val db: AppDatabase) {
         val cri = criterioDao.todosIncl()
         val pts = pontoDao.todosIncl()
         val vis = visitanteDao.todosIncl()
+        val ctb = contribuicaoDao.todasIncl()
 
         val uidClasse = cls.associate { it.id to (it.uid ?: "") }
         val uidAluno = alu.associate { it.id to (it.uid ?: "") }
@@ -282,7 +323,7 @@ class Repository(private val db: AppDatabase) {
                 .put("uid", it.uid).put("classeUid", uidClasse[it.classeId] ?: "")
                 .put("nome", it.nome).put("dataNascimento", it.dataNascimento ?: JSONObject.NULL)
                 .put("telefone", it.telefone).put("cargo", it.cargo).put("ativo", b(it.ativo))
-                .put("especial", b(it.especial))
+                .put("especial", b(it.especial)).put("professor", b(it.professor))
                 .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
         })
         root.put("chamadas", JSONArray().apply {
@@ -326,6 +367,13 @@ class Repository(private val db: AppDatabase) {
                 .put("data", it.data).put("pontos", it.pontos).put("quantidade", it.quantidade)
                 .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
         })
+        root.put("contribuicoes", JSONArray().apply {
+            ctb.forEach { put(JSONObject()
+                .put("uid", it.uid).put("alunoUid", uidAluno[it.alunoId] ?: "")
+                .put("ano", it.ano).put("mes", it.mes).put("valor", it.valor)
+                .put("forma", it.forma).put("data", it.data).put("observacao", it.observacao)
+                .put("updatedAt", it.updatedAt ?: 0L).put("deleted", b(it.deleted))) }
+        })
         return root
     }
 
@@ -351,13 +399,19 @@ class Repository(private val db: AppDatabase) {
             val local = alunoDao.porUid(uid)
             val dados2 = Aluno(classeId = cId, nome = jStr(o, "nome"), dataNascimento = jLongOrNull(o, "dataNascimento"),
                 telefone = jStr(o, "telefone"), cargo = jStr(o, "cargo"), ativo = jBool(o, "ativo"),
-                especial = jBool(o, "especial"),
+                especial = jBool(o, "especial"), professor = jBool(o, "professor"),
                 uid = uid, updatedAt = rUpd, deleted = rDel)
             if (local == null) alunoDao.inserir(dados2)
             else if (rUpd > (local.updatedAt ?: 0L)) alunoDao.atualizar(
                 // Campo ausente é falta de informação, não exclusão: sem esta guarda um
                 // aparelho com parsing quebrado apaga o aniversário em todos os outros.
-                dados2.copy(id = local.id, dataNascimento = dados2.dataNascimento ?: local.dataNascimento)
+                // Vale também para `professor`, que aparelhos numa versão anterior nem
+                // sabem enviar — sem a guarda, o primeiro sync deles desmarcaria todos.
+                dados2.copy(
+                    id = local.id,
+                    dataNascimento = dados2.dataNascimento ?: local.dataNascimento,
+                    professor = if (temValor(o, "professor")) dados2.professor else local.professor
+                )
             )
         }
         val mapaAluno = alunoDao.todosIncl().associate { (it.uid ?: "") to it.id }
@@ -445,6 +499,20 @@ class Repository(private val db: AppDatabase) {
             if (local == null) pontoDao.inserir(dados2)
             else if (rUpd > (local.updatedAt ?: 0L)) pontoDao.atualizar(dados2.copy(id = local.id))
         }
+
+        // CONTRIBUIÇÕES DOS PROFESSORES
+        eachObj(dados.optJSONArray("contribuicoes")) { o ->
+            val uid = jStr(o, "uid"); if (uid.isBlank()) return@eachObj
+            val aId = mapaAluno[jStr(o, "alunoUid")] ?: return@eachObj
+            val rUpd = jLong(o, "updatedAt"); val rDel = jBool(o, "deleted")
+            val local = contribuicaoDao.porUid(uid)
+            val dados2 = ContribuicaoProfessor(alunoId = aId, ano = jInt(o, "ano"), mes = jInt(o, "mes"),
+                valor = jDouble(o, "valor"), forma = jStr(o, "forma").ifBlank { FORMA_DINHEIRO },
+                data = jLong(o, "data"), observacao = jStr(o, "observacao"),
+                uid = uid, updatedAt = rUpd, deleted = rDel)
+            if (local == null) contribuicaoDao.inserir(dados2)
+            else if (rUpd > (local.updatedAt ?: 0L)) contribuicaoDao.atualizar(dados2.copy(id = local.id))
+        }
     }
 }
 
@@ -454,6 +522,17 @@ private inline fun eachObj(arr: JSONArray?, action: (JSONObject) -> Unit) {
     for (i in 0 until arr.length()) arr.optJSONObject(i)?.let(action)
 }
 private fun jStr(o: JSONObject, k: String): String = if (o.isNull(k)) "" else o.optString(k, "")
+
+/**
+ * Se a chave chegou com conteúdo de verdade.
+ *
+ * Célula vazia na planilha e chave ausente no JSON significam a mesma coisa — "este
+ * aparelho não sabe deste campo" — e as duas precisam preservar o valor local. Sem
+ * isto, um celular numa versão anterior sincronizando desmarcaria os professores
+ * de todos os outros.
+ */
+private fun temValor(o: JSONObject, k: String): Boolean =
+    !o.isNull(k) && o.opt(k)?.toString()?.isNotBlank() == true
 private fun jBool(o: JSONObject, k: String): Boolean = when (val v = o.opt(k)) {
     is Boolean -> v; is Number -> v.toInt() == 1; is String -> v == "1" || v.equals("true", true); else -> false
 }

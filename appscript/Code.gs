@@ -62,8 +62,8 @@ var SCHEMA = {
     apoio:   []
   },
   alunos: {
-    campos:  ['uid','classeUid','nome','dataNascimento','telefone','cargo','ativo','especial','updatedAt','deleted'],
-    titulos: ['ID','ID da Classe','Nome','Data de Nascimento','Telefone','Cargo','Ativo','Especial','Atualizado em','Excluído'],
+    campos:  ['uid','classeUid','nome','dataNascimento','telefone','cargo','ativo','especial','professor','updatedAt','deleted'],
+    titulos: ['ID','ID da Classe','Nome','Data de Nascimento','Telefone','Cargo','Ativo','Especial','Professor','Atualizado em','Excluído'],
     datas:   { dataNascimento: true },
     apoio:   [
       { titulo: 'Classe', lookupCol: 'classeUid', lookupAba: 'classes', lookupChave: 'uid', lookupValor: 'nome' }
@@ -106,6 +106,14 @@ var SCHEMA = {
     apoio:   [
       { titulo: 'Aluno',    lookupCol: 'alunoUid',    lookupAba: 'alunos',    lookupChave: 'uid', lookupValor: 'nome' },
       { titulo: 'Critério', lookupCol: 'criterioUid', lookupAba: 'criterios', lookupChave: 'uid', lookupValor: 'nome' }
+    ]
+  },
+  contribuicoes: {
+    campos:  ['uid','alunoUid','ano','mes','valor','forma','data','observacao','updatedAt','deleted'],
+    titulos: ['ID','ID do Aluno','Ano','Mês','Valor (R$)','Forma','Data da Entrega','Observação','Atualizado em','Excluído'],
+    datas:   { data: true },
+    apoio:   [
+      { titulo: 'Professor', lookupCol: 'alunoUid', lookupAba: 'alunos', lookupChave: 'uid', lookupValor: 'nome' }
     ]
   },
   visitantes: {
@@ -474,6 +482,42 @@ function MIGRAR_PARA_V3() {
   });
 
   ss.toast('Migração concluída. Abas de finanças e revistas antigas foram arquivadas.', 'EBD Sync', 6);
+}
+
+/**
+ * Migração para o esquema com contribuições dos professores. Rodar UMA vez.
+ *
+ * - `alunos` ganha a coluna "Professor" antes de "Atualizado em". Inserir no lugar
+ *   certo é obrigatório: as abas são lidas por POSIÇÃO de coluna, e uma coluna a
+ *   mais no fim faria `updatedAt` e `deleted` serem lidos deslocados.
+ * - `contribuicoes` é criada vazia, com cabeçalho.
+ *
+ * É seguro rodar de novo: se a coluna já estiver lá, nada acontece.
+ */
+function MIGRAR_PARA_V4() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var sh = ss.getSheetByName('alunos');
+  if (sh) {
+    var col = SCHEMA.alunos.campos.indexOf('professor') + 1;
+    var titulo = SCHEMA.alunos.titulos[col - 1];
+    if (sh.getRange(1, col).getValue() !== titulo) {
+      sh.insertColumnBefore(col);
+      // 0 explícito, e não célula vazia: o app lê a coluna crua, e vazio numa
+      // planilha já migrada seria indistinguível de "o aparelho não enviou o campo".
+      var linhas = sh.getLastRow() - 1;
+      if (linhas > 0) {
+        sh.getRange(2, col, linhas, 1).setValue(0);
+        sh.getRange(2, col, linhas, 1).setNumberFormat(FORMATO_TEXTO);
+      }
+      escreverCabecalho_(sh, 'alunos');
+      preencherApoio_(sh, 'alunos');
+    }
+  }
+
+  aba_('contribuicoes');
+
+  ss.toast('Planilha pronta: coluna Professor e aba contribuicoes.', 'EBD Sync', 6);
 }
 
 /* ===================== RANKING PARA IMPRESSÃO ===================== */

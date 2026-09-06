@@ -79,6 +79,9 @@ data class Trimestre(val ano: Int, val numero: Int) {
     fun anterior(): Trimestre = if (numero == 1) Trimestre(ano - 1, 4) else Trimestre(ano, numero - 1)
     fun proximo(): Trimestre = if (numero == 4) Trimestre(ano + 1, 1) else Trimestre(ano, numero + 1)
 
+    /** Os três meses do trimestre como número (1..12). */
+    fun meses(): List<Int> = ((numero - 1) * 3 + 1).let { primeiro -> listOf(primeiro, primeiro + 1, primeiro + 2) }
+
     /** Os meses do trimestre como rótulos curtos pt-BR ("Jan", "Fev", "Mar"). */
     val mesesAbreviados: List<String>
         get() {

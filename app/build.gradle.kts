@@ -33,7 +33,7 @@ android {
         minSdk = 26
         targetSdk = 35
         // Fonte única da versão. Mude só esta linha a cada APK distribuído.
-        val versao = "3.5"
+        val versao = "3.6"
 
         // versionName é o que o humano lê; versionCode é o inteiro que o Android usa
         // para reconhecer atualização e precisa sempre crescer. Calcular um a partir do

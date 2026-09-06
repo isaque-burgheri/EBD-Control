@@ -642,6 +642,115 @@ class PontuacaoViewModel(
     }
 }
 
+/* ----------------------- Contribuições dos professores ----------------------- */
+/** Um mês do trimestre na linha de um professor. `contribuicao` nulo = ainda não deu. */
+data class MesContribuicaoUi(
+    val mes: Int,
+    val rotulo: String,
+    val contribuicao: ContribuicaoProfessor?
+) {
+    val valor: Double get() = contribuicao?.valor ?: 0.0
+    val registrado: Boolean get() = contribuicao != null
+}
+
+/** Uma linha da tela: o professor e os três meses do trimestre. */
+data class LinhaContribuicaoUi(
+    val aluno: Aluno,
+    val classeNome: String,
+    val meses: List<MesContribuicaoUi>
+) {
+    val total: Double get() = meses.sumOf { it.valor }
+    val mesesPagos: Int get() = meses.count { it.registrado }
+}
+
+/** Cabeçalho da tela: o quanto entrou no trimestre e de que forma. */
+data class ResumoContribuicoesUi(
+    val professores: Int = 0,
+    val contribuiram: Int = 0,
+    val total: Double = 0.0,
+    val emDinheiro: Double = 0.0,
+    val emPix: Double = 0.0,
+    /** (rótulo do mês, total do mês) para os três meses do trimestre. */
+    val porMes: List<Pair<String, Double>> = emptyList()
+)
+
+data class ContribuicoesUi(
+    val linhas: List<LinhaContribuicaoUi> = emptyList(),
+    val resumo: ResumoContribuicoesUi = ResumoContribuicoesUi()
+)
+
+/**
+ * Ajuda de custo mensal dos professores, por trimestre.
+ *
+ * Tudo sai de Flows do Room, então marcar alguém como professor na tela de Membros
+ * reflete aqui na hora — e desmarcar tira a pessoa da lista sem apagar o que ela já
+ * havia contribuído: o histórico continua na tabela e volta a aparecer se ela for
+ * remarcada.
+ */
+class ContribuicoesViewModel(app: Application) : AndroidViewModel(app) {
+    private val repo = app.repo()
+
+    private val _trimestre = MutableStateFlow(Trimestre.atual())
+    val trimestre: StateFlow<Trimestre> = _trimestre.asStateFlow()
+
+    val estado: StateFlow<ContribuicoesUi> = combine(
+        repo.alunos, repo.classes, repo.contribuicoes, _trimestre
+    ) { alunos, classes, contribuicoes, t ->
+        val nomeClasse = classes.associate { it.id to it.nome }
+        val meses = t.meses()
+        val rotulos = t.mesesAbreviados
+
+        // Uma contribuição por professor por mês — é o que o uid determinístico
+        // garante. `associateBy` pega a última se algum dia houver repetida.
+        val doTrimestre = contribuicoes
+            .filter { it.ano == t.ano && it.mes in meses }
+            .groupBy { it.alunoId }
+            .mapValues { (_, lista) -> lista.associateBy { it.mes } }
+
+        val linhas = alunos
+            .filter { it.professor && it.ativo }
+            .sortedBy { it.nome }
+            .map { a ->
+                val doProfessor = doTrimestre[a.id].orEmpty()
+                LinhaContribuicaoUi(
+                    aluno = a,
+                    classeNome = nomeClasse[a.classeId] ?: "",
+                    meses = meses.mapIndexed { i, m ->
+                        MesContribuicaoUi(m, rotulos[i], doProfessor[m])
+                    }
+                )
+            }
+
+        val lancamentos = linhas.flatMap { l -> l.meses.mapNotNull { it.contribuicao } }
+        ContribuicoesUi(
+            linhas = linhas,
+            resumo = ResumoContribuicoesUi(
+                professores = linhas.size,
+                contribuiram = linhas.count { it.mesesPagos > 0 },
+                total = lancamentos.sumOf { it.valor },
+                emDinheiro = lancamentos.filter { it.forma == FORMA_DINHEIRO }.sumOf { it.valor },
+                emPix = lancamentos.filter { it.forma == FORMA_PIX }.sumOf { it.valor },
+                porMes = meses.mapIndexed { i, m ->
+                    rotulos[i] to lancamentos.filter { it.mes == m }.sumOf { it.valor }
+                }
+            )
+        )
+    }.stateInDefault(viewModelScope, ContribuicoesUi())
+
+    fun trimestreAnterior() { _trimestre.value = _trimestre.value.anterior() }
+    fun trimestreProximo() { _trimestre.value = _trimestre.value.proximo() }
+
+    fun registrar(alunoId: Long, mes: Int, valor: Double, forma: String, data: Long, observacao: String) =
+        viewModelScope.launch {
+            repo.salvarContribuicao(alunoId, _trimestre.value.ano, mes, valor, forma, data, observacao)
+        }
+
+    /** Apaga o lançamento do mês. Valor 0 é o que o repositório entende como remoção. */
+    fun remover(alunoId: Long, mes: Int) = viewModelScope.launch {
+        repo.salvarContribuicao(alunoId, _trimestre.value.ano, mes, 0.0, FORMA_DINHEIRO, 0L, "")
+    }
+}
+
 /* ----------------------- Visitantes ----------------------- */
 class VisitantesViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = app.repo()

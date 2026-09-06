@@ -180,6 +180,23 @@ interface PontoLancamentoDao {
 }
 
 @Dao
+interface ContribuicaoProfessorDao {
+    @Query("SELECT * FROM contribuicoes_professores WHERE IFNULL(deleted,0)=0")
+    fun observarTodas(): Flow<List<ContribuicaoProfessor>>
+
+    @Query("SELECT * FROM contribuicoes_professores WHERE ano = :ano AND mes IN (:meses) AND IFNULL(deleted,0)=0")
+    suspend fun listarDosMeses(ano: Int, meses: List<Int>): List<ContribuicaoProfessor>
+
+    @Query("SELECT * FROM contribuicoes_professores") suspend fun todasIncl(): List<ContribuicaoProfessor>
+    @Query("SELECT * FROM contribuicoes_professores WHERE uid = :uid LIMIT 1")
+    suspend fun porUid(uid: String): ContribuicaoProfessor?
+
+    @Insert suspend fun inserir(c: ContribuicaoProfessor): Long
+    @Update suspend fun atualizar(c: ContribuicaoProfessor)
+    @Query("DELETE FROM contribuicoes_professores") suspend fun deletarTudo()
+}
+
+@Dao
 interface VisitanteDao {
     @Query("SELECT * FROM visitantes WHERE IFNULL(deleted,0)=0 ORDER BY data DESC")
     fun observarTodos(): Flow<List<Visitante>>
