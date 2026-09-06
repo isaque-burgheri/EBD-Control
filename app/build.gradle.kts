@@ -15,8 +15,8 @@ android {
         targetSdk = 35
         // versionCode: número que o Android usa para reconhecer atualização — sempre
         // incrementar a cada APK distribuído. versionName: o que o humano lê.
-        versionCode = 3
-        versionName = "3.2"
+        versionCode = 4
+        versionName = "3.3"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -48,6 +48,9 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+    // SavedStateHandle: a aba de pontos guarda nele o rascunho de marcações, que
+    // precisa sobreviver à rotação e à troca de item na barra inferior.
+    implementation("androidx.lifecycle:lifecycle-viewmodel-savedstate:2.8.6")
     // collectAsStateWithLifecycle: para a coleta pausar no onStop em vez de
     // manter os Flows do Room ativos com o app em segundo plano.
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")

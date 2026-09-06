@@ -2,10 +2,13 @@ package com.ebd.controle.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.ebd.controle.EBDApp
 import com.ebd.controle.data.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.time.YearMonth
@@ -372,59 +375,219 @@ data class RankingLinhaUi(
     val faltas: Int
 )
 
-class PontuacaoViewModel(app: Application) : AndroidViewModel(app) {
+/* Rascunho da aba "Marcar pontos".
+ *
+ * Antes cada toque num chip gravava no banco na hora. Como o SyncManager observa o
+ * Room e dispara a sincronização pouco depois de qualquer gravação, marcar presença,
+ * pontualidade e Bíblia em sequência virava uma rajada de gravações — e qualquer pausa
+ * no meio da marcação mandava o banco inteiro para a planilha, com a aula do dia ainda
+ * pela metade. Agora a tela acumula tudo em memória, igual à Chamada, e só grava quando
+ * o professor toca em "Salvar pontuação".
+ *
+ * O rascunho mora no SavedStateHandle e não num campo comum porque o ViewModel desta
+ * aba morre ao trocar de item na barra inferior (popUpTo com saveState) — sem isso,
+ * sair para "Membros" e voltar apagaria marcações ainda não gravadas.
+ */
+private const val CHAVE_CLASSE = "pontuacao_classe"
+private const val CHAVE_DATA = "pontuacao_data"
+private const val CHAVE_RASCUNHO = "pontuacao_rascunho"
+
+/** alunoId -> (criterioId -> quantidade). Ausente do mapa = não marcado. */
+private typealias Marcacoes = Map<Long, Map<Long, Int>>
+
+/** Serializa como "aluno:criterio:qtd;aluno:criterio:qtd" — o Bundle guarda String sem cerimônia. */
+private fun Marcacoes.serializar(): String = buildString {
+    this@serializar.forEach { (alunoId, marcas) ->
+        marcas.forEach { (criterioId, qtd) ->
+            if (qtd > 0) {
+                if (isNotEmpty()) append(';')
+                append(alunoId).append(':').append(criterioId).append(':').append(qtd)
+            }
+        }
+    }
+}
+
+private fun String.desserializarMarcacoes(): Marcacoes {
+    if (isBlank()) return emptyMap()
+    val mapa = HashMap<Long, MutableMap<Long, Int>>()
+    split(';').forEach { item ->
+        val partes = item.split(':')
+        if (partes.size != 3) return@forEach
+        val alunoId = partes[0].toLongOrNull() ?: return@forEach
+        val criterioId = partes[1].toLongOrNull() ?: return@forEach
+        val qtd = partes[2].toIntOrNull() ?: return@forEach
+        if (qtd > 0) mapa.getOrPut(alunoId) { HashMap() }[criterioId] = qtd
+    }
+    return mapa
+}
+
+/** Quantos lançamentos o rascunho mudaria se fosse gravado agora. */
+private fun contarDiferencas(salvas: Marcacoes, rascunho: Marcacoes): Int {
+    var n = 0
+    (salvas.keys + rascunho.keys).forEach { alunoId ->
+        val antes = salvas[alunoId].orEmpty()
+        val depois = rascunho[alunoId].orEmpty()
+        (antes.keys + depois.keys).forEach { criterioId ->
+            if ((antes[criterioId] ?: 0) != (depois[criterioId] ?: 0)) n++
+        }
+    }
+    return n
+}
+
+class PontuacaoViewModel(
+    app: Application,
+    private val estado: SavedStateHandle
+) : AndroidViewModel(app) {
     private val repo = app.repo()
 
     val classes = repo.classes.stateInDefault(viewModelScope, emptyList())
     val criterios = repo.criterios.stateInDefault(viewModelScope, emptyList())
 
     /* ---- Marcação rápida (por classe + data) ---- */
-    private val _classeId = MutableStateFlow<Long?>(null)
-    val classeId: StateFlow<Long?> = _classeId.asStateFlow()
+    // Classe e data acompanham o rascunho no SavedStateHandle: um rascunho restaurado
+    // sobre outra classe ou outro domingo lançaria os pontos no lugar errado.
+    val classeId: StateFlow<Long?> = estado.getStateFlow<Long?>(CHAVE_CLASSE, null)
+    val data: StateFlow<Long> = estado.getStateFlow(CHAVE_DATA, hojeMillis())
 
-    private val _data = MutableStateFlow(hojeMillis())
-    val data: StateFlow<Long> = _data.asStateFlow()
+    /** Marcações como estão no banco para a classe+data atual. */
+    private val _marcasSalvas = MutableStateFlow<Marcacoes>(emptyMap())
 
-    private val _alunos = MutableStateFlow<List<AlunoPontosUi>>(emptyList())
-    val alunos: StateFlow<List<AlunoPontosUi>> = _alunos.asStateFlow()
+    /** Marcações em edição, ainda não gravadas. */
+    private val rascunho: StateFlow<String> = estado.getStateFlow(CHAVE_RASCUNHO, "")
 
-    fun setClasse(id: Long?) { _classeId.value = id; recarregarMarcacao() }
-    fun setData(d: Long) { _data.value = d; recarregarMarcacao() }
+    private val _alunosDaClasse = MutableStateFlow<List<Aluno>>(emptyList())
+    private var jobCarga: Job? = null
 
-    /** (Re)carrega os alunos da classe/data e o que já foi marcado naquele dia. */
-    fun recarregarMarcacao() = viewModelScope.launch {
-        val cid = _classeId.value
-        if (cid == null) { _alunos.value = emptyList(); return@launch }
-        val d = _data.value
-        val lista = repo.listarAlunosPorClasse(cid)
-        _alunos.value = lista.map { a ->
-            val lancs = repo.pontosDoAlunoNaData(a.id, d)
-            val marcas = lancs.associate { it.criterioId to it.quantidade }
-            AlunoPontosUi(a, marcas, lancs.sumOf { it.pontos })
-        }
+    /**
+     * O total exibido sai do rascunho, não do banco: o professor precisa ver o efeito do
+     * toque antes de salvar. A conta serve aos dois tipos de critério, porque a
+     * quantidade de um critério de toque único é sempre 1 — a mesma que o repositório
+     * usa ao gravar.
+     */
+    val alunos: StateFlow<List<AlunoPontosUi>> =
+        combine(_alunosDaClasse, rascunho, criterios) { lista, bruto, crits ->
+            val valor = crits.associate { it.id to it.pontos }
+            val marcado = bruto.desserializarMarcacoes()
+            lista.map { a ->
+                val marcas = marcado[a.id].orEmpty()
+                AlunoPontosUi(a, marcas, marcas.entries.sumOf { (cid, q) -> (valor[cid] ?: 0) * q })
+            }
+        }.stateInDefault(viewModelScope, emptyList())
+
+    /** Nº de lançamentos ainda não gravados (0 = tela em dia com o banco). */
+    val pendentes: StateFlow<Int> =
+        combine(_marcasSalvas, rascunho) { salvas, bruto ->
+            contarDiferencas(salvas, bruto.desserializarMarcacoes())
+        }.stateInDefault(viewModelScope, 0)
+
+    fun setClasse(id: Long?) {
+        if (id == classeId.value) return
+        estado[CHAVE_CLASSE] = id
+        recarregarMarcacao()
+    }
+
+    fun setData(d: Long) {
+        if (d == data.value) return
+        estado[CHAVE_DATA] = d
+        recarregarMarcacao()
     }
 
     /**
-     * Marca/atualiza um critério para um aluno. quantidade<=0 remove (toggle off).
-     * Recarrega só o aluno afetado para manter a tela fluida.
+     * (Re)carrega os alunos da classe/data e o que já está gravado naquele dia. Por
+     * padrão o rascunho volta a ser igual ao banco; [preservarRascunho] mantém o que
+     * está em edição — usado ao voltar da pilha de navegação e quando só o catálogo de
+     * critérios mudou.
      */
-    fun marcar(alunoId: Long, criterio: CriterioPontuacao, quantidade: Int) = viewModelScope.launch {
-        repo.marcarPonto(alunoId, criterio, _data.value, quantidade)
-        val lancs = repo.pontosDoAlunoNaData(alunoId, _data.value)
-        val marcas = lancs.associate { it.criterioId to it.quantidade }
-        val total = lancs.sumOf { it.pontos }
-        _alunos.value = _alunos.value.map {
-            if (it.aluno.id == alunoId) it.copy(marcas = marcas, total = total) else it
+    fun recarregarMarcacao(preservarRascunho: Boolean = false) {
+        // Uma carga por vez: trocar de data duas vezes seguidas deixava duas leituras
+        // correndo juntas, e a mais lenta escrevia por cima do rascunho da mais nova.
+        jobCarga?.cancel()
+        jobCarga = viewModelScope.launch { carregarMarcacao(preservarRascunho) }
+    }
+
+    private suspend fun carregarMarcacao(preservarRascunho: Boolean) {
+        val cid = classeId.value
+        if (cid == null) {
+            _alunosDaClasse.value = emptyList()
+            _marcasSalvas.value = emptyMap()
+            if (!preservarRascunho) estado[CHAVE_RASCUNHO] = ""
+            return
         }
+        val d = data.value
+        val lista = repo.listarAlunosPorClasse(cid)
+        val salvas: Marcacoes = lista.associate { a ->
+            a.id to repo.pontosDoAlunoNaData(a.id, d).associate { it.criterioId to it.quantidade }
+        }.filterValues { it.isNotEmpty() }
+        _alunosDaClasse.value = lista
+        _marcasSalvas.value = salvas
+        if (!preservarRascunho) estado[CHAVE_RASCUNHO] = salvas.serializar()
+    }
+
+    /**
+     * Marca/desmarca um critério no RASCUNHO. Nada é gravado nem sincronizado aqui: é só
+     * estado de tela, e por isso não precisa de corrotina.
+     * quantidade <= 0 remove a marcação (toggle off).
+     */
+    fun marcar(alunoId: Long, criterio: CriterioPontuacao, quantidade: Int) {
+        val qtd = when {
+            quantidade <= 0 -> 0
+            criterio.porQuantidade -> quantidade
+            else -> 1
+        }
+        val atual = rascunho.value.desserializarMarcacoes()
+        val doAluno = atual[alunoId].orEmpty().toMutableMap()
+        if (qtd == 0) doAluno.remove(criterio.id) else doAluno[criterio.id] = qtd
+        estado[CHAVE_RASCUNHO] = (atual + (alunoId to doAluno)).serializar()
     }
 
     /** Alterna um critério de toque único (presença, pontualidade...). */
     fun alternar(alunoId: Long, criterio: CriterioPontuacao, marcadoAgora: Boolean) =
         marcar(alunoId, criterio, if (marcadoAgora) 1 else 0)
 
+    /** Devolve o rascunho ao que está gravado, descartando o que foi marcado. */
+    fun descartarRascunho() {
+        estado[CHAVE_RASCUNHO] = _marcasSalvas.value.serializar()
+    }
+
+    /**
+     * Grava o rascunho de uma vez só e devolve quantos lançamentos mudaram.
+     *
+     * Escreve apenas as diferenças: linha não tocada não tem `updatedAt` mexido e não
+     * viaja de novo para a planilha. A sincronização acontece sozinha depois desta
+     * rajada de gravações, como na tela de Chamada.
+     */
+    fun salvarPontuacao(onDone: (Int) -> Unit) = viewModelScope.launch {
+        val d = data.value
+        val salvas = _marcasSalvas.value
+        val desejadas = rascunho.value.desserializarMarcacoes()
+        // Do repositório, e não do StateFlow: `criterios` para de coletar quando a tela
+        // sai de foco e voltaria vazio, engolindo as gravações.
+        val porId = repo.listarCriterios().associateBy { it.id }
+        var gravados = 0
+        (salvas.keys + desejadas.keys).forEach { alunoId ->
+            val antes = salvas[alunoId].orEmpty()
+            val depois = desejadas[alunoId].orEmpty()
+            (antes.keys + depois.keys).forEach { criterioId ->
+                val qtdAntes = antes[criterioId] ?: 0
+                val qtdDepois = depois[criterioId] ?: 0
+                if (qtdAntes == qtdDepois) return@forEach
+                val criterio = porId[criterioId] ?: return@forEach
+                repo.marcarPonto(alunoId, criterio, d, qtdDepois)
+                gravados++
+            }
+        }
+        // Espera a releitura: o diálogo de troca de classe salva e muda de contexto no
+        // mesmo toque, e as duas cargas não podem correr juntas.
+        jobCarga?.cancelAndJoin()
+        carregarMarcacao(preservarRascunho = false)
+        onDone(gravados)
+    }
+
     /* ---- Critérios (catálogo editável) ---- */
     fun salvarCriterio(c: CriterioPontuacao) = viewModelScope.launch {
-        repo.salvarCriterio(c); recarregarMarcacao()
+        repo.salvarCriterio(c)
+        // Mexer no catálogo não pode apagar a marcação em andamento.
+        recarregarMarcacao(preservarRascunho = true)
     }
     fun deletarCriterio(c: CriterioPontuacao) = viewModelScope.launch { repo.deletarCriterio(c) }
 
@@ -471,7 +634,12 @@ class PontuacaoViewModel(app: Application) : AndroidViewModel(app) {
         }.sortedWith(compareByDescending<RankingLinhaUi> { it.pontos }.thenBy { it.faltas }.thenBy { it.aluno.nome })
     }
 
-    init { recarregarRanking() }
+    init {
+        recarregarRanking()
+        // Volta de rotação ou da pilha de navegação: repovoa a lista de alunos sem
+        // encostar no rascunho que o SavedStateHandle acabou de devolver.
+        if (classeId.value != null) recarregarMarcacao(preservarRascunho = true)
+    }
 }
 
 /* ----------------------- Visitantes ----------------------- */
