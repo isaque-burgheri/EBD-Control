@@ -33,6 +33,12 @@ data class Aluno(
     val ativo: Boolean = true,
     /** Aluno especial (inclusão): usa o grupo de critérios adaptados na tela de pontos. */
     val especial: Boolean = false,
+    /**
+     * Professor: entra no controle de contribuições. É uma marca própria, e não o
+     * `cargo` nem a classe, porque nenhum dos dois descreve isso de forma confiável —
+     * há professor lotado na classe que ele ensina, e `cargo` é texto livre.
+     */
+    val professor: Boolean = false,
     val uid: String? = null,
     val updatedAt: Long? = null,
     val deleted: Boolean? = null
@@ -83,6 +89,39 @@ data class RevistaAluno(
     val updatedAt: Long? = null,
     val deleted: Boolean? = null
 )
+
+/**
+ * Ajuda de custo mensal de um professor.
+ *
+ * O trabalho na EBD é voluntário e a oferta de domingo raramente cobre o café; a
+ * diferença saía do bolso de quem coordena. Os professores passaram a contribuir com
+ * um valor mensal — voluntário, sem cobrança nem punição. Esta tabela existe só para
+ * dar transparência ao que entrou e ao que foi repassado ao diretor.
+ *
+ * Uma linha por professor por mês. O uid determinístico
+ * ("contrib:alunoUid:ano:mes") garante que dois celulares registrando a mesma
+ * contribuição atualizem a mesma linha em vez de criar duas.
+ */
+@Entity(tableName = "contribuicoes_professores")
+data class ContribuicaoProfessor(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val alunoId: Long,
+    val ano: Int,
+    /** Mês de competência, 1..12 — a que mês a contribuição se refere. */
+    val mes: Int,
+    val valor: Double = 0.0,
+    /** "DINHEIRO" ou "PIX". Texto e não enum para o sync com a planilha ficar legível. */
+    val forma: String = FORMA_DINHEIRO,
+    /** Dia em que foi entregue. Pode diferir do mês de competência (atraso, adiantamento). */
+    val data: Long = 0L,
+    val observacao: String = "",
+    val uid: String? = null,
+    val updatedAt: Long? = null,
+    val deleted: Boolean? = null
+)
+
+const val FORMA_DINHEIRO = "DINHEIRO"
+const val FORMA_PIX = "PIX"
 
 /**
  * Catálogo de critérios de pontuação (o "quanto vale cada coisa").

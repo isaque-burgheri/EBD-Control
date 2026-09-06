@@ -10,8 +10,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [Classe::class, Aluno::class, Chamada::class, Presenca::class,
         RevistaAluno::class, CriterioPontuacao::class, PontoLancamento::class,
-        Visitante::class],
-    version = 9,
+        Visitante::class, ContribuicaoProfessor::class],
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -23,6 +23,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun criterioPontuacaoDao(): CriterioPontuacaoDao
     abstract fun pontoLancamentoDao(): PontoLancamentoDao
     abstract fun visitanteDao(): VisitanteDao
+    abstract fun contribuicaoDao(): ContribuicaoProfessorDao
 
     companion object {
         /**
@@ -30,7 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
          * companion. Serve para carimbar a origem do arquivo de backup; mantenha os dois
          * em sincronia ao subir o esquema.
          */
-        const val VERSAO_ESQUEMA = 9
+        const val VERSAO_ESQUEMA = 10
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -189,6 +190,38 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * Migração 9 -> 10: marca de professor e a tabela de contribuições.
+         *
+         * Quem já está cadastrado é marcado por aproximação, porque não havia campo
+         * para isso antes: entra quem está numa classe de professores ou quem tem
+         * cargo de professor/líder. É de propósito generoso — desmarcar um nome a mais
+         * na tela de Membros é mais fácil do que descobrir um que ficou de fora.
+         */
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE alunos ADD COLUMN professor INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `contribuicoes_professores` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`alunoId` INTEGER NOT NULL, `ano` INTEGER NOT NULL, " +
+                        "`mes` INTEGER NOT NULL, `valor` REAL NOT NULL DEFAULT 0.0, " +
+                        "`forma` TEXT NOT NULL DEFAULT 'DINHEIRO', " +
+                        "`data` INTEGER NOT NULL DEFAULT 0, " +
+                        "`observacao` TEXT NOT NULL DEFAULT '', " +
+                        "`uid` TEXT, `updatedAt` INTEGER, `deleted` INTEGER)"
+                )
+                // `updatedAt` NÃO é carimbado aqui de propósito: a marca é um palpite
+                // local, e carimbá-la faria este aparelho vencer a planilha e espalhar
+                // o palpite para os outros. Quem editar de verdade na tela, vence.
+                db.execSQL(
+                    "UPDATE alunos SET professor = 1 WHERE IFNULL(deleted,0) = 0 AND (" +
+                        "classeId IN (SELECT id FROM classes WHERE UPPER(nome) LIKE '%PROFESSOR%') " +
+                        "OR cargo LIKE 'Professor%' OR cargo LIKE 'L%der%')"
+                )
+            }
+        }
+
+        /**
          * Critérios padrão, para o app abrir usável sem depender da nuvem.
          *
          * O uid é fixo e legível para não duplicar ao sincronizar entre celulares.
@@ -239,7 +272,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "ebd-controle.db"
                 ).addMigrations(
                     MIGRATION_1_2, MIGRATION_4_5, MIGRATION_5_6,
-                    MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9
+                    MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10
                 )
                     // Numa instalação limpa o Room cria o esquema direto na versão atual
                     // e NÃO roda migração nenhuma. Sem este callback, os critérios (que

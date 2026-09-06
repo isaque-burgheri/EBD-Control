@@ -141,6 +141,7 @@ private fun AlunoDialog(
     var cargoIdx by remember { mutableStateOf(CARGOS.indexOf(inicial?.cargo ?: "Membro").coerceAtLeast(0)) }
     var ativo by remember { mutableStateOf(inicial?.ativo ?: true) }
     var especial by remember { mutableStateOf(inicial?.especial ?: false) }
+    var professor by remember { mutableStateOf(inicial?.professor ?: false) }
 
     AlertDialog(
         onDismissRequest = onCancelar,
@@ -178,6 +179,20 @@ private fun AlunoDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = professor,
+                        onCheckedChange = { professor = it },
+                        colors = com.ebd.controle.ui.components.realceSwitchColors()
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("É professor")
+                        Text("Entra no controle de contribuições",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
         },
         confirmButton = {
@@ -193,7 +208,8 @@ private fun AlunoDialog(
                             telefone = tel.trim(),
                             cargo = CARGOS[cargoIdx],
                             ativo = ativo,
-                            especial = especial
+                            especial = especial,
+                            professor = professor
                         )
                     )
                 }

@@ -58,6 +58,7 @@ private val titulos = mapOf(
     "visitantes" to "Visitantes",
     "relatorios" to "Relatórios",
     "pontos" to "Pontuação",
+    "contribuicoes" to "Contribuições",
     "classes" to "Classes",
     "aniversarios" to "Aniversariantes",
     "backup" to "Backup e dados",
@@ -152,6 +153,7 @@ fun AppRoot() {
             composable("visitantes") { VisitantesScreen() }
             composable("relatorios") { RelatoriosScreen() }
             composable("pontos") { PontuacaoScreen() }
+            composable("contribuicoes") { ContribuicoesScreen() }
             composable("classes") { ClassesScreen() }
             composable("aniversarios") { AniversariantesScreen() }
             composable("backup") { BackupScreen() }

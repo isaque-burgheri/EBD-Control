@@ -13,3 +13,8 @@ build.log
 
 # Ferramentas locais do Claude Code (skills de terceiros, nao fazem parte do projeto)
 .claude/
+
+# Chave de assinatura do release: o .jks e as senhas nunca entram no git.
+keystore.properties
+*.jks
+*.keystore

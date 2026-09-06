@@ -1,8 +1,27 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
+}
+
+/*
+ * Chave de assinatura do release.
+ *
+ * O .jks e as senhas ficam FORA do repositorio: `keystore.properties` esta no
+ * .gitignore. Sem esse arquivo o build de release sai sem assinatura em vez de
+ * quebrar, para quem so compila debug nao precisar da chave.
+ *
+ * Assinar o release com chave propria e o que garante que a proxima versao instala
+ * por cima: a chave de debug e descartavel e muda de maquina para maquina, e foi
+ * isso que obrigou a desinstalar o app na virada da 3.2 para a 3.3.
+ */
+val arquivoChave = rootProject.file("keystore.properties")
+val chaveConfigurada = arquivoChave.exists()
+val propsChave = Properties().apply {
+    if (chaveConfigurada) arquivoChave.inputStream().use { load(it) }
 }
 
 android {
@@ -13,15 +32,35 @@ android {
         applicationId = "com.ebd.controle"
         minSdk = 26
         targetSdk = 35
-        // versionCode: número que o Android usa para reconhecer atualização — sempre
-        // incrementar a cada APK distribuído. versionName: o que o humano lê.
-        versionCode = 4
-        versionName = "3.3"
+        // Fonte única da versão. Mude só esta linha a cada APK distribuído.
+        val versao = "3.6"
+
+        // versionName é o que o humano lê; versionCode é o inteiro que o Android usa
+        // para reconhecer atualização e precisa sempre crescer. Calcular um a partir do
+        // outro (3.3 -> 303) elimina o erro de subir o nome e esquecer o código — foi o
+        // que deixou o código em 3 enquanto o nome já estava em 3.2.
+        versionName = versao
+        versionCode = versao.split(".").let { partes ->
+            require(partes.size == 2) { "versionName deve ser MAIOR.MENOR (ex.: 3.3), veio \"$versao\"" }
+            partes[0].toInt() * 100 + partes[1].toInt()
+        }
         vectorDrawables { useSupportLibrary = true }
+    }
+
+    signingConfigs {
+        if (chaveConfigurada) {
+            create("release") {
+                storeFile = file(propsChave.getProperty("storeFile"))
+                storePassword = propsChave.getProperty("storePassword")
+                keyAlias = propsChave.getProperty("keyAlias")
+                keyPassword = propsChave.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
+            if (chaveConfigurada) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

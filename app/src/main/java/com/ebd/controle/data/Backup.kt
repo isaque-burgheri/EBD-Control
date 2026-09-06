@@ -34,12 +34,14 @@ data class DadosBackup(
     val visitantes: List<Visitante> = emptyList(),
     val revistasAlunos: List<RevistaAluno> = emptyList(),
     val criterios: List<CriterioPontuacao> = emptyList(),
-    val pontos: List<PontoLancamento> = emptyList()
+    val pontos: List<PontoLancamento> = emptyList(),
+    val contribuicoes: List<ContribuicaoProfessor> = emptyList()
 ) {
     /** Total de registros — mostrado ao usuário depois de restaurar. */
     val total: Int
         get() = classes.size + alunos.size + chamadas.size + presencas.size +
-            visitantes.size + revistasAlunos.size + criterios.size + pontos.size
+            visitantes.size + revistasAlunos.size + criterios.size + pontos.size +
+            contribuicoes.size
 }
 
 /** Lançada quando o arquivo escolhido não é um backup válido. */
@@ -65,6 +67,7 @@ suspend fun exportarBackup(repo: Repository): String {
             .put("dataNascimento", it.dataNascimento ?: JSONObject.NULL)
             .put("telefone", it.telefone).put("cargo", it.cargo)
             .put("ativo", it.ativo).put("especial", it.especial)
+            .put("professor", it.professor)
     })
     root.put("chamadas", arr(d.chamadas) {
         obj(it.id, it.uid, it.updatedAt, it.deleted)
@@ -96,6 +99,12 @@ suspend fun exportarBackup(repo: Repository): String {
         obj(it.id, it.uid, it.updatedAt, it.deleted)
             .put("alunoId", it.alunoId).put("criterioId", it.criterioId).put("data", it.data)
             .put("pontos", it.pontos).put("quantidade", it.quantidade)
+    })
+    root.put("contribuicoes", arr(d.contribuicoes) {
+        obj(it.id, it.uid, it.updatedAt, it.deleted)
+            .put("alunoId", it.alunoId).put("ano", it.ano).put("mes", it.mes)
+            .put("valor", it.valor).put("forma", it.forma).put("data", it.data)
+            .put("observacao", it.observacao)
     })
 
     return root.toString(2)
@@ -173,6 +182,7 @@ private fun lerDados(root: JSONObject) = DadosBackup(
             dataNascimento = longOuNulo(it, "dataNascimento"),
             telefone = it.optString("telefone", ""), cargo = it.optString("cargo", ""),
             ativo = it.optBoolean("ativo", true), especial = it.optBoolean("especial", false),
+            professor = it.optBoolean("professor", false),
             uid = uid(it), updatedAt = updatedAt(it), deleted = deleted(it))
     },
     chamadas = mapa(root, "chamadas") {
@@ -210,6 +220,14 @@ private fun lerDados(root: JSONObject) = DadosBackup(
         PontoLancamento(id = id(it), alunoId = it.getLong("alunoId"),
             criterioId = it.getLong("criterioId"), data = it.getLong("data"),
             pontos = it.optInt("pontos", 0), quantidade = it.optInt("quantidade", 1).coerceAtLeast(1),
+            uid = uid(it), updatedAt = updatedAt(it), deleted = deleted(it))
+    },
+    contribuicoes = mapa(root, "contribuicoes") {
+        ContribuicaoProfessor(id = id(it), alunoId = it.getLong("alunoId"),
+            ano = it.optInt("ano", 0), mes = it.optInt("mes", 0),
+            valor = it.optDouble("valor", 0.0),
+            forma = it.optString("forma", FORMA_DINHEIRO).ifBlank { FORMA_DINHEIRO },
+            data = it.optLong("data", 0L), observacao = it.optString("observacao", ""),
             uid = uid(it), updatedAt = updatedAt(it), deleted = deleted(it))
     }
 )
