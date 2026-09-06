@@ -13,12 +13,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,6 +44,7 @@ import com.ebd.controle.ui.components.DateField
 import com.ebd.controle.ui.components.Kicker
 import com.ebd.controle.ui.theme.Azul
 import com.ebd.controle.ui.theme.Verde
+import kotlinx.coroutines.launch
 
 /** Rótulos amigáveis para os grupos de critérios. */
 private val gruposOrdem = listOf("REGULAR", "ESPECIAL", "CAFE", "CESTA")
@@ -61,8 +64,10 @@ fun PontuacaoScreen() {
 
     var aba by remember { mutableStateOf(0) }
     var mostrarCriterios by remember { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { mostrarCriterios = true },
@@ -79,7 +84,7 @@ fun PontuacaoScreen() {
             }
             Spacer(Modifier.height(8.dp))
 
-            if (aba == 0) AbaMarcar(vm, classes, criterios)
+            if (aba == 0) AbaMarcar(vm, classes, criterios, snackbar)
             else AbaRanking(vm, classes)
         }
     }
@@ -95,15 +100,31 @@ fun PontuacaoScreen() {
 }
 
 /* ============================ MARCAR PONTOS ============================ */
+
+/**
+ * Troca de classe ou de data pedida com marcações ainda não gravadas. Trocar recarrega
+ * do banco e joga fora o rascunho, então a troca fica em espera até o professor
+ * confirmar — antes do salvamento em lote não havia nada a perder, agora há.
+ */
+private sealed interface TrocaPendente {
+    data class Classe(val id: Long?) : TrocaPendente
+    data class Data(val millis: Long) : TrocaPendente
+}
+
 @Composable
 private fun AbaMarcar(
     vm: PontuacaoViewModel,
     classes: List<com.ebd.controle.data.Classe>,
-    criterios: List<CriterioPontuacao>
+    criterios: List<CriterioPontuacao>,
+    snackbar: SnackbarHostState
 ) {
     val data by vm.data.collectAsStateWithLifecycle()
     val classeId by vm.classeId.collectAsStateWithLifecycle()
     val alunos by vm.alunos.collectAsStateWithLifecycle()
+    val pendentes by vm.pendentes.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+
+    var troca by remember { mutableStateOf<TrocaPendente?>(null) }
 
     // Seleciona a 1ª classe automaticamente quando a tela abre.
     LaunchedEffect(classes) {
@@ -118,10 +139,30 @@ private fun AbaMarcar(
     }
 
     Column {
-        Dropdown("Classe", classes.map { it.nome }, classeIdx,
-            { idx -> vm.setClasse(classes.getOrNull(idx)?.id) })
+        Dropdown("Classe", classes.map { it.nome }, classeIdx, { idx ->
+            val novo = classes.getOrNull(idx)?.id
+            if (pendentes > 0) troca = TrocaPendente.Classe(novo) else vm.setClasse(novo)
+        })
         Spacer(Modifier.height(8.dp))
-        DateField("Data da aula", data, onPick = { vm.setData(it) })
+        DateField("Data da aula", data, onPick = { nova ->
+            if (pendentes > 0) troca = TrocaPendente.Data(nova) else vm.setData(nova)
+        })
+
+        if (pendentes > 0) {
+            Spacer(Modifier.height(8.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "$pendentes marcação(ões) ainda não salva(s) — toque em Salvar pontuação no fim da lista.",
+                    Modifier.padding(10.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+            }
+        }
         Spacer(Modifier.height(8.dp))
 
         if (criterios.isEmpty()) {
@@ -138,8 +179,88 @@ private fun AbaMarcar(
             items(alunos, key = { it.aluno.id }) { linha ->
                 CartaoAlunoPontos(linha, criterios, vm)
             }
-            item { Spacer(Modifier.height(88.dp)) }
+
+            // Fecho da página, no mesmo formato da Chamada: marca-se à vontade e só
+            // aqui os pontos vão para o banco — e, na sequência, para a planilha.
+            item {
+                Spacer(Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        vm.salvarPontuacao { gravados ->
+                            scope.launch {
+                                snackbar.showSnackbar(
+                                    if (gravados == 0) "Nada para salvar."
+                                    else "Pontuação salva! ($gravados lançamento(s))"
+                                )
+                            }
+                        }
+                    },
+                    enabled = pendentes > 0,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(Icons.Filled.Save, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (pendentes > 0) "Salvar pontuação ($pendentes)" else "Pontuação salva",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                if (pendentes > 0) {
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { vm.descartarRascunho() },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Undo, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Descartar alterações")
+                    }
+                }
+                Spacer(Modifier.height(88.dp))
+            }
         }
+    }
+
+    val pedida = troca
+    if (pedida != null) {
+        AlertDialog(
+            onDismissRequest = { troca = null },
+            title = { Text("Trocar sem salvar?") },
+            text = {
+                Text(
+                    "Há $pendentes marcação(ões) que ainda não foram salvas. Trocar de " +
+                        "classe ou de data descarta essas marcações."
+                )
+            },
+            // Salvar fica na posição primária: descartar é o caminho destrutivo e não
+            // deve ser o botão que a mão alcança sem ler.
+            confirmButton = {
+                TextButton(onClick = {
+                    troca = null
+                    vm.salvarPontuacao { gravados ->
+                        scope.launch {
+                            snackbar.showSnackbar("Pontuação salva! ($gravados lançamento(s))")
+                        }
+                        when (pedida) {
+                            is TrocaPendente.Classe -> vm.setClasse(pedida.id)
+                            is TrocaPendente.Data -> vm.setData(pedida.millis)
+                        }
+                    }
+                }) { Text("Salvar e trocar") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    when (pedida) {
+                        is TrocaPendente.Classe -> vm.setClasse(pedida.id)
+                        is TrocaPendente.Data -> vm.setData(pedida.millis)
+                    }
+                    troca = null
+                }) { Text("Descartar", color = MaterialTheme.colorScheme.error) }
+            }
+        )
     }
 }
 
