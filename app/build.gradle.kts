@@ -13,10 +13,18 @@ android {
         applicationId = "com.ebd.controle"
         minSdk = 26
         targetSdk = 35
-        // versionCode: número que o Android usa para reconhecer atualização — sempre
-        // incrementar a cada APK distribuído. versionName: o que o humano lê.
-        versionCode = 4
-        versionName = "3.3"
+        // Fonte única da versão. Mude só esta linha a cada APK distribuído.
+        val versao = "3.3"
+
+        // versionName é o que o humano lê; versionCode é o inteiro que o Android usa
+        // para reconhecer atualização e precisa sempre crescer. Calcular um a partir do
+        // outro (3.3 -> 303) elimina o erro de subir o nome e esquecer o código — foi o
+        // que deixou o código em 3 enquanto o nome já estava em 3.2.
+        versionName = versao
+        versionCode = versao.split(".").let { partes ->
+            require(partes.size == 2) { "versionName deve ser MAIOR.MENOR (ex.: 3.3), veio \"$versao\"" }
+            partes[0].toInt() * 100 + partes[1].toInt()
+        }
         vectorDrawables { useSupportLibrary = true }
     }
 
