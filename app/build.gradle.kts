@@ -59,6 +59,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-teste"
+        }
         release {
             if (chaveConfigurada) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false

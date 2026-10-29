@@ -1,0 +1,89 @@
+name: Gerar APK
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'app/**'
+      - '*.gradle.kts'
+      - 'gradle.properties'
+      - 'gradle/**'
+      - 'gradlew*'
+      - '.github/workflows/gerar-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gerar-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Preparar assinatura
+        id: assinatura
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.EBD_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.EBD_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.EBD_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.EBD_KEY_PASSWORD }}
+        run: |
+          python3 <<'PY'
+          import os, base64
+          from pathlib import Path
+          nomes = ["KEYSTORE_BASE64", "STORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD"]
+          valores = [os.environ.get(n, "") for n in nomes]
+          if any(valores) and not all(valores):
+              raise SystemExit("Assinatura incompleta: configure os quatro secrets EBD de assinatura.")
+          release = all(valores)
+          if release:
+              chave = Path(os.environ["RUNNER_TEMP"]) / "ebd-release.jks"
+              chave.write_bytes(base64.b64decode(valores[0], validate=True))
+              chave.chmod(0o600)
+              def escapar(valor):
+                  return "".join("\\u%04x" % ord(c) for c in valor)
+              props = dict(storeFile=str(chave), storePassword=valores[1],
+                           keyAlias=valores[2], keyPassword=valores[3])
+              Path("keystore.properties").write_text(
+                  "\n".join(k + "=" + escapar(v) for k, v in props.items()), encoding="ascii")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as saida:
+              saida.write("tipo=" + ("release" if release else "debug") + "\n")
+          if not release:
+              print("::notice::Sem chave de release: gerando APK de teste separado (.debug).")
+          PY
+      - name: Compilar APK
+        env:
+          TIPO: ${{ steps.assinatura.outputs.tipo }}
+        run: |
+          if [ "$TIPO" = "release" ]; then
+            bash ./gradlew --no-daemon :app:assembleRelease --stacktrace
+          else
+            bash ./gradlew --no-daemon :app:assembleDebug --stacktrace
+          fi
+      - name: Disponibilizar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: EBD-Control-APK-${{ steps.assinatura.outputs.tipo }}
+          path: app/build/outputs/apk/${{ steps.assinatura.outputs.tipo }}/*.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remover chave temporária
+        if: always()
+        shell: bash
+        run: |
+          rm -f keystore.properties "$RUNNER_TEMP/ebd-release.jks"

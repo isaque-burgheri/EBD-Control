@@ -85,6 +85,33 @@ Pontuação (marcação rápida) e ranking dos alunos por trimestre:
 
 ## 3. Gerar o APK
 
+### Automaticamente pelo GitHub Actions
+
+O fluxo [Gerar APK](../../actions/workflows/gerar-apk.yml) roda ao alterar o app,
+o Gradle ou o próprio fluxo na branch `master`. Também pode ser iniciado em
+**Actions → Gerar APK → Run workflow**. O ZIP com o APK fica em **Artifacts** por 14 dias.
+Mudanças apenas na documentação ou no mural não disparam a compilação.
+
+Sem assinatura configurada, gera uma instalação de teste separada (`com.ebd.controle.debug`,
+versão com sufixo `-teste`), com dados próprios. Ela não atualiza o app principal.
+A assinatura de debug pode mudar entre execuções.
+
+Para gerar o **release que atualiza o app principal**, cadastre em
+**Settings → Secrets and variables → Actions** estes quatro secrets:
+
+| Secret | Conteúdo |
+|---|---|
+| `EBD_KEYSTORE_BASE64` | Arquivo `.jks` original convertido para Base64, em uma única linha |
+| `EBD_STORE_PASSWORD` | Senha do arquivo da chave |
+| `EBD_KEY_ALIAS` | Alias da chave (ex.: `ebd`) |
+| `EBD_KEY_PASSWORD` | Senha da chave |
+
+Use a mesma chave dos APKs já instalados. Não crie outra para substituir a original.
+Não publique o `.jks` nem suas senhas no repositório. Se apenas parte dos secrets estiver
+configurada, a compilação para com uma mensagem de assinatura incompleta.
+Depois de configurar os quatro, execute o fluxo manualmente para obter o release.
+
+
 ### Para distribuir
 O APK que vai para os celulares é o **release**, assinado com a chave do projeto.
 
