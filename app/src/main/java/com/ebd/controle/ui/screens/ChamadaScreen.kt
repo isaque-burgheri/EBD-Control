@@ -33,6 +33,7 @@ import com.ebd.controle.data.hojeMillis
 import com.ebd.controle.ui.ChamadaViewModel
 import com.ebd.controle.ui.components.DateField
 import com.ebd.controle.ui.components.Dropdown
+import com.ebd.controle.ui.components.EfeitoPixel
 import com.ebd.controle.ui.theme.Azul
 import kotlinx.coroutines.launch
 
@@ -91,6 +92,8 @@ fun ChamadaScreen() {
     val presencasExistentes by vm.presencasExistentes.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    // Conta quantas vezes a chamada foi salva nesta tela; cada incremento toca o efeito em pixel.
+    var festa by remember { mutableIntStateOf(0) }
 
     // A classe é guardada pelo id, não pela posição na lista: `classes` vem de um Flow
     // vivo e reordena por nome quando o sync traz uma classe nova. Com índice, a tela
@@ -161,6 +164,7 @@ fun ChamadaScreen() {
     val presentes = marcas.values.count { it.presente }
     val total = alunos.size
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { p ->
         if (classes.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(24.dp)) { Text("Crie uma classe e membros primeiro.") }
@@ -292,6 +296,7 @@ fun ChamadaScreen() {
                             scope.launch {
                                 snackbar.showSnackbar(if (eraEdicao) "Chamada atualizada!" else "Chamada salva!")
                             }
+                            festa++ // só visual: toca o efeito, não mexe nos dados
                             visitantesNovos.clear()
                             // Salvo, o banco volta a ser a verdade: solta a precedência
                             // dos toques para o recarregamento abaixo valer.
@@ -344,6 +349,8 @@ fun ChamadaScreen() {
                 dismissButton = { TextButton(onClick = { confirmarExcluir = false }) { Text("Cancelar") } }
             )
         }
+    }
+    EfeitoPixel(festa)
     }
 }
 

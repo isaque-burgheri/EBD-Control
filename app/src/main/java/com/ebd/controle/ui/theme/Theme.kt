@@ -91,32 +91,28 @@ private val PapelClaroSurfVar  = Color(0xFFF4F0E7)
 private val LinhaClaro         = Color(0xFFE4DFD4)
 
 /* ---------------------------------------------------------------------
- * PALETA NOTURNA "TINTA-VIOLETA" (veredito do campeonato de design)
- *  Fusão dos dois finalistas:
- *   • Do TRADO (ref. 1): a riqueza joia — fundo tinta profunda com toque
- *     violeta e um acento periwinkle/índigo vibrante nos momentos de ação
- *     (botões, pílula de navegação). Dá o "premium".
- *   • Do app de eventos (ref. 2): a calma sofisticada — superfícies
- *     carvão-neutras e um lilás suave e MUITO legível para ícones, números
- *     e metadados. Dá o "contemplativo" que combina com a serifa Playfair.
- *  Resultado: zero verde dominante. O lilás vira a voz; o índigo vira a ação.
+ * PALETA NOTURNA "PRETO QUENTE"
+ *  Antes era tinta-violeta com índigo/lilás em tudo — o sinal clássico de
+ *  UI "feita com IA". Agora o escuro segue a mesma voz do claro: neutros
+ *  quentes (o preto da marca, #1A1615, com leve tom de papel queimado) e o
+ *  verde-limão como ÚNICO acento. A cor mora no conteúdo; o cromo fica quieto.
  * ------------------------------------------------------------------- */
-private val TintaFundo     = Color(0xFF15131C) // tinta quase-preta, leve véu violeta
-private val SuperficieEsc      = Color(0xFF1F1B2A) // card carvão-violeta (joia, do TRADO)
-private val SuperficieEscVar   = Color(0xFF272234) // variação um tom acima
-private val LinhaEsc           = Color(0xFF352F47) // linha fina violeta-cinza (sem peso)
-private val BrancoLunar        = Color(0xFFECE9F3) // near-white com toque frio (texto)
-private val CinzaLilasEsc      = Color(0xFFA9A2BC) // lilás-cinza para metadados/labels
+private val TintaFundo     = Color(0xFF141211) // preto quente, fundo dominante
+private val SuperficieEsc      = Color(0xFF1E1B19) // card
+private val SuperficieEscVar   = Color(0xFF282421) // um tom acima
+private val LinhaEsc           = Color(0xFF38332E) // linha fina, sem peso
+private val BrancoLunar        = Color(0xFFF1ECE2) // texto: papel, não branco puro
+private val CinzaLilasEsc      = Color(0xFFA8A194) // metadados/labels (cinza areia)
 
-// família roxa
-private val Periwinkle     = Color(0xFF8E8AFF) // índigo claro — AÇÃO (texto e fill)
-private val PeriwinkleInk  = Color(0xFF16132A) // tinta para conteúdo sobre o periwinkle
-private val IndigoProfundo = Color(0xFF362C6E) // índigo joia — pílula/realce de fundo
-private val LavandaSuave   = Color(0xFFC6B6EC) // lilás suave — acento sereno (do ref. 2)
-private val LavandaClara   = Color(0xFFD9CEFF) // lilás claro — texto sobre fundos roxos
-private val VioletaContainer = Color(0xFF2A2440) // fundo de card destacado (visitantes)
-private val MintSereno     = Color(0xFF86E0C2) // verde-menta discreto — só sinal POSITIVO
-private val LavandaNeutra  = Color(0xFFB7A6EA) // acento informativo (ex-"Azul")
+// acentos do escuro: limão da marca + areia como apoio
+private val Periwinkle     = Lima                  // AÇÃO (texto e fill): o limão
+private val PeriwinkleInk  = PretoCS               // conteúdo sobre o limão
+private val IndigoProfundo = Color(0xFF2F3A1F)    // oliva escuro — pílula/realce
+private val LavandaSuave   = Color(0xFFD9D0BC)    // areia — acento sereno
+private val LavandaClara   = Color(0xFFE6F5C8)    // limão pálido — texto sobre oliva
+private val VioletaContainer = Color(0xFF26231F)  // card de destaque (visitantes)
+private val MintSereno     = Color(0xFFB9E58A)    // verde-folha — só sinal POSITIVO
+private val LavandaNeutra  = Color(0xFFCFC6B2)    // acento informativo (areia)
 
 // estados (a marca evita vermelho, então usamos um tijolo quente e discreto)
 private val TijoloClaro  = Color(0xFFB5472F)
@@ -153,19 +149,19 @@ private val LightColors = lightColorScheme(
     onErrorContainer = Color(0xFF5A1B12)
 )
 
-/* ---- Tema ESCURO: tinta-violeta, índigo como ação, lilás como voz ---- */
+/* ---- Tema ESCURO: preto quente, limão como ação, areia como voz ---- */
 private val DarkColors = darkColorScheme(
-    primary = Periwinkle,                    // botões/seleção índigo claro...
-    onPrimary = PeriwinkleInk,               // ...com conteúdo tinta
-    primaryContainer = IndigoProfundo,       // pílula de nav = índigo joia
-    onPrimaryContainer = LavandaClara,       // ícone/texto lilás claro na pílula
+    primary = Periwinkle,                    // botões/seleção em limão...
+    onPrimary = PeriwinkleInk,               // ...com conteúdo preto
+    primaryContainer = IndigoProfundo,       // pílula de nav = oliva escuro
+    onPrimaryContainer = LavandaClara,       // ícone/texto limão pálido na pílula
     secondary = LavandaSuave,
     onSecondary = PeriwinkleInk,
     secondaryContainer = VioletaContainer,   // card de destaque (visitantes)
     onSecondaryContainer = LavandaClara,
     tertiary = LavandaSuave,
     onTertiary = PeriwinkleInk,
-    tertiaryContainer = Color(0xFF332B4C),
+    tertiaryContainer = Color(0xFF34301F),
     onTertiaryContainer = LavandaClara,
     background = TintaFundo,
     onBackground = BrancoLunar,
@@ -192,10 +188,10 @@ private val DarkColors = darkColorScheme(
  *  No claro usamos verdes escuros legíveis sobre branco; no escuro o limão
  *  pode aparecer como número/heroi porque tem ótimo contraste.
  * ===================================================================== */
-val Azul: Color   // acento neutro/informativo (verde-petróleo no claro; lilás no escuro)
+val Azul: Color   // acento neutro/informativo (verde-petróleo no claro; areia no escuro)
     @Composable @ReadOnlyComposable get() =
         if (LocalAppBrushes.current.escuro) LavandaNeutra else Petroleo
-val Verde: Color  // positivo (musgo legível no claro; menta serena no escuro)
+val Verde: Color  // positivo (musgo legível no claro; verde-folha no escuro)
     @Composable @ReadOnlyComposable get() =
         if (LocalAppBrushes.current.escuro) MintSereno else Musgo
 val Vermelho: Color // negativo/erro, em tom quente alinhado à paleta
@@ -224,8 +220,8 @@ private fun brushesClaro() = AppBrushes(
 
 private fun brushesEscuro() = AppBrushes(
     fundo = Brush.verticalGradient(
-        0f to Color(0xFF1A1726), // tinta-violeta no topo
-        1f to Color(0xFF121019)  // mais fechada e profunda no rodapé
+        0f to Color(0xFF181514), // preto quente no topo
+        1f to Color(0xFF110F0E)  // mais fechado no rodapé
     ),
     escuro = true
 )

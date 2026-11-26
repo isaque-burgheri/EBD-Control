@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256"><title>EBD Controle</title><g transform="translate(-3.07 -3.07) scale(1.024)"><title id="t">EBD Controle</title>
+<rect x="8" y="8" width="240" height="240" rx="56" fill="#1A1615"/>
+<path fill="#F6F2EA" d="M128 204C108 190 76 186 48 192V118C76 112 108 116 128 130Z"/>
+<path fill="#E0D9C8" d="M128 204C148 190 180 186 208 192V118C180 112 148 116 128 130Z"/>
+<path fill="none" stroke="#DBFFA5" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" d="M94 90L120 114L168 54"/></g></svg>

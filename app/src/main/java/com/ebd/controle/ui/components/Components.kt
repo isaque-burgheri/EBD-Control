@@ -13,7 +13,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -35,11 +34,9 @@ private val RaioCard = 16.dp
  */
 @Composable
 fun realceSwitchColors(): SwitchColors {
-    val escuro = com.ebd.controle.ui.theme.LocalAppBrushes.current.escuro
-    // No escuro a "cápsula" verde-limão destoaria da paleta violeta — então o
-    // ON usa o índigo da marca noturna (trilho periwinkle + polegar tinta).
-    val trilho = if (escuro) MaterialTheme.colorScheme.primary else Realce
-    val polegar = if (escuro) MaterialTheme.colorScheme.onPrimary else RealceConteudo
+    // Agora o escuro também é limão + preto quente, então o toggle ON é igual nos dois temas.
+    val trilho = Realce
+    val polegar = RealceConteudo
     return SwitchDefaults.colors(
         checkedThumbColor = polegar,
         checkedTrackColor = trilho,
@@ -193,12 +190,7 @@ fun BarChart(data: List<Pair<String, Float>>, accent: Color, modifier: Modifier 
                 val x = gap + i * (bw + gap)
                 val top = size.height - bottomPad - h
                 drawRoundRect(
-                    brush = Brush.verticalGradient(
-                        0f to accent,
-                        1f to accent.copy(alpha = 0.6f),
-                        startY = top,
-                        endY = size.height
-                    ),
+                    color = accent,
                     topLeft = Offset(x, top),
                     size = Size(bw, h),
                     cornerRadius = raio
